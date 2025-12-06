@@ -1282,9 +1282,9 @@ def list_tags(repo_slug: str, limit: int = 50) -> dict:
         "tags": [
             {
                 "name": t.get("name"),
-                "target": t.get("target", {}).get("hash", "")[:12],
+                "target": (t.get("target") or {}).get("hash", "")[:12],
                 "message": t.get("message", ""),
-                "tagger": t.get("tagger", {}).get("raw", ""),
+                "tagger": (t.get("tagger") or {}).get("raw", ""),
                 "date": t.get("date"),
             }
             for t in tags
