@@ -2,103 +2,86 @@
 
 ## Resumen
 
-Este documento describe las nuevas funcionalidades a implementar en el MCP de Bitbucket para mejorar la experiencia de desarrolladores y equipos DevOps.
+Este documento describe las funcionalidades del MCP de Bitbucket y el plan para futuras mejoras.
 
 ---
 
-## Estado Actual (v0.1.x)
+## Estado Actual (v0.2.0) - 38 herramientas
 
-### Funcionalidades Implementadas (18 herramientas)
+### Funcionalidades Implementadas
 
-| Categoría | Herramientas | Endpoints |
-|-----------|--------------|-----------|
-| **Repositorios** | `get_repository`, `create_repository`, `delete_repository`, `list_repositories`, `update_repository` | CRUD completo |
-| **Pull Requests** | `create_pull_request`, `get_pull_request`, `list_pull_requests`, `merge_pull_request` | Crear, listar, obtener, mergear |
-| **Pipelines** | `trigger_pipeline`, `get_pipeline`, `list_pipelines`, `get_pipeline_logs`, `stop_pipeline` | CI/CD completo |
-| **Projects** | `list_projects`, `get_project` | Lectura |
-| **Branches** | `list_branches`, `get_branch` | Lectura |
+| Categoría | Herramientas | Estado |
+|-----------|--------------|--------|
+| **Repositorios** | `get_repository`, `create_repository`, `delete_repository`, `list_repositories`, `update_repository` | v0.1.0 |
+| **Pull Requests** | `create_pull_request`, `get_pull_request`, `list_pull_requests`, `merge_pull_request` | v0.1.0 |
+| **Pipelines** | `trigger_pipeline`, `get_pipeline`, `list_pipelines`, `get_pipeline_logs`, `stop_pipeline` | v0.1.0 |
+| **Projects** | `list_projects`, `get_project` | v0.1.0 |
+| **Branches** | `list_branches`, `get_branch` | v0.1.0 |
+| **Commits** | `list_commits`, `get_commit`, `compare_commits` | v0.2.0 |
+| **Commit Statuses** | `get_commit_statuses`, `create_commit_status` | v0.2.0 |
+| **PR Reviews** | `approve_pr`, `unapprove_pr`, `request_changes_pr`, `decline_pr`, `list_pr_comments`, `add_pr_comment`, `get_pr_diff` | v0.2.0 |
+| **Deployments** | `list_environments`, `get_environment`, `list_deployment_history` | v0.2.0 |
+| **Webhooks** | `list_webhooks`, `create_webhook`, `get_webhook`, `delete_webhook` | v0.2.0 |
 
 ---
 
-## Fase 1: Alta Prioridad (v0.2.0)
+## Fase 1: Alta Prioridad - COMPLETADA (v0.2.0)
 
 ### 1.1 Commits y Diff
 
-Fundamental para revisar cambios antes de deploy y debugging.
-
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `list_commits` | `GET /repositories/{workspace}/{repo}/commits` | Historial de commits de una rama |
-| `get_commit` | `GET /repositories/{workspace}/{repo}/commit/{commit}` | Detalles de un commit específico |
-| `compare_commits` | `GET /repositories/{workspace}/{repo}/diff/{spec}` | Diff entre dos commits/ramas |
-
-**Parámetros clave:**
-- `branch`: Filtrar por rama
-- `include`/`exclude`: Filtrar commits
-- `path`: Filtrar por archivo modificado
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `list_commits` | DONE | Historial de commits de una rama |
+| `get_commit` | DONE | Detalles de un commit específico |
+| `compare_commits` | DONE | Diff entre dos commits/ramas |
 
 ---
 
 ### 1.2 Commit Statuses (Build Status)
 
-Integración con CI/CD externos y verificación de estado de builds.
-
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `get_commit_statuses` | `GET /repositories/{workspace}/{repo}/commit/{commit}/statuses` | Estados de CI/CD de un commit |
-| `create_commit_status` | `POST /repositories/{workspace}/{repo}/commit/{commit}/statuses/build` | Reportar estado de build externo |
-
-**Estados posibles:** `SUCCESSFUL`, `FAILED`, `INPROGRESS`, `STOPPED`
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `get_commit_statuses` | DONE | Estados de CI/CD de un commit |
+| `create_commit_status` | DONE | Reportar estado de build externo |
 
 ---
 
 ### 1.3 PR Comments y Reviews
 
-Flujo completo de code review sin salir del CLI.
-
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `list_pr_comments` | `GET /repositories/{workspace}/{repo}/pullrequests/{pr_id}/comments` | Ver comentarios de un PR |
-| `add_pr_comment` | `POST /repositories/{workspace}/{repo}/pullrequests/{pr_id}/comments` | Añadir comentario |
-| `approve_pr` | `POST /repositories/{workspace}/{repo}/pullrequests/{pr_id}/approve` | Aprobar PR |
-| `request_changes_pr` | `POST /repositories/{workspace}/{repo}/pullrequests/{pr_id}/request-changes` | Solicitar cambios |
-| `get_pr_diff` | `GET /repositories/{workspace}/{repo}/pullrequests/{pr_id}/diff` | Ver diff del PR |
-| `decline_pr` | `POST /repositories/{workspace}/{repo}/pullrequests/{pr_id}/decline` | Rechazar PR |
-| `unapprove_pr` | `DELETE /repositories/{workspace}/{repo}/pullrequests/{pr_id}/approve` | Quitar aprobación |
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `list_pr_comments` | DONE | Ver comentarios de un PR |
+| `add_pr_comment` | DONE | Añadir comentario |
+| `approve_pr` | DONE | Aprobar PR |
+| `unapprove_pr` | DONE | Quitar aprobación |
+| `request_changes_pr` | DONE | Solicitar cambios |
+| `decline_pr` | DONE | Rechazar PR |
+| `get_pr_diff` | DONE | Ver diff del PR |
 
 ---
 
 ### 1.4 Deployments y Environments
 
-Monitoreo de qué está desplegado en cada ambiente.
-
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `list_environments` | `GET /repositories/{workspace}/{repo}/environments` | Listar environments (test, staging, prod) |
-| `get_environment` | `GET /repositories/{workspace}/{repo}/environments/{env_uuid}` | Detalles de un environment |
-| `list_deployment_history` | `GET /repositories/{workspace}/{repo}/environments/{env_uuid}/deployment_history` | Historial de deploys |
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `list_environments` | DONE | Listar environments (test, staging, prod) |
+| `get_environment` | DONE | Detalles de un environment |
+| `list_deployment_history` | DONE | Historial de deploys |
 
 ---
 
 ### 1.5 Webhooks
 
-Automatización de configuración de integraciones.
-
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `list_webhooks` | `GET /repositories/{workspace}/{repo}/hooks` | Ver webhooks configurados |
-| `create_webhook` | `POST /repositories/{workspace}/{repo}/hooks` | Crear webhook |
-| `get_webhook` | `GET /repositories/{workspace}/{repo}/hooks/{uid}` | Obtener detalles de webhook |
-| `delete_webhook` | `DELETE /repositories/{workspace}/{repo}/hooks/{uid}` | Eliminar webhook |
-
-**Eventos soportados:**
-- `repo:push`, `repo:fork`, `repo:commit_status_created`
-- `pullrequest:created`, `pullrequest:updated`, `pullrequest:approved`, `pullrequest:merged`
-- `issue:created`, `issue:updated`
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `list_webhooks` | DONE | Ver webhooks configurados |
+| `create_webhook` | DONE | Crear webhook |
+| `get_webhook` | DONE | Obtener detalles de webhook |
+| `delete_webhook` | DONE | Eliminar webhook |
 
 ---
 
-## Fase 2: Prioridad Media (v0.3.0)
+## Fase 2: Prioridad Media (v0.3.0) - PENDIENTE
 
 ### 2.1 Tags
 
@@ -154,7 +137,7 @@ Automatización de configuración de integraciones.
 
 ---
 
-## Fase 3: Prioridad Baja (v0.4.0)
+## Fase 3: Prioridad Baja (v0.4.0) - PENDIENTE
 
 ### 3.1 Issue Tracker
 
@@ -173,69 +156,28 @@ Automatización de configuración de integraciones.
 
 ---
 
-## Plan de Implementación - Fase 1
+## Historial de Releases
 
-### Checklist de Desarrollo
+### v0.2.0 (2025-12-06)
+- +20 nuevas herramientas
+- Commits: `list_commits`, `get_commit`, `compare_commits`
+- Commit Statuses: `get_commit_statuses`, `create_commit_status`
+- PR Reviews: `approve_pr`, `unapprove_pr`, `request_changes_pr`, `decline_pr`, `list_pr_comments`, `add_pr_comment`, `get_pr_diff`
+- Deployments: `list_environments`, `get_environment`, `list_deployment_history`
+- Webhooks: `list_webhooks`, `create_webhook`, `get_webhook`, `delete_webhook`
 
-- [ ] **1. Commits y Diff**
-  - [ ] Implementar `list_commits`
-  - [ ] Implementar `get_commit`
-  - [ ] Implementar `compare_commits`
-  - [ ] Tests unitarios
-  - [ ] Documentación
-
-- [ ] **2. Commit Statuses**
-  - [ ] Implementar `get_commit_statuses`
-  - [ ] Implementar `create_commit_status`
-  - [ ] Tests unitarios
-  - [ ] Documentación
-
-- [ ] **3. PR Comments y Reviews**
-  - [ ] Implementar `list_pr_comments`
-  - [ ] Implementar `add_pr_comment`
-  - [ ] Implementar `approve_pr`
-  - [ ] Implementar `request_changes_pr`
-  - [ ] Implementar `get_pr_diff`
-  - [ ] Implementar `decline_pr`
-  - [ ] Implementar `unapprove_pr`
-  - [ ] Tests unitarios
-  - [ ] Documentación
-
-- [ ] **4. Deployments**
-  - [ ] Implementar `list_environments`
-  - [ ] Implementar `get_environment`
-  - [ ] Implementar `list_deployment_history`
-  - [ ] Tests unitarios
-  - [ ] Documentación
-
-- [ ] **5. Webhooks**
-  - [ ] Implementar `list_webhooks`
-  - [ ] Implementar `create_webhook`
-  - [ ] Implementar `get_webhook`
-  - [ ] Implementar `delete_webhook`
-  - [ ] Tests unitarios
-  - [ ] Documentación
-
-### Checklist de Release
-
-- [ ] Actualizar versión en `pyproject.toml` a `0.2.0`
-- [ ] Actualizar `README.md` con nuevas funcionalidades
-- [ ] Actualizar `INSTALLATION.md` si es necesario
-- [ ] Ejecutar tests completos
-- [ ] Build del paquete
-- [ ] Publicar en PyPI
-- [ ] Crear tag de release en Git
+### v0.1.x (2025-12)
+- 18 herramientas iniciales
+- Repositorios, PRs, Pipelines, Projects, Branches
 
 ---
 
-## Métricas de Éxito
+## Métricas
 
-| Métrica | Objetivo |
-|---------|----------|
-| Herramientas totales | 18 → 38 (+20) |
-| Cobertura CI/CD | Commits, statuses, deployments |
-| Cobertura Code Review | Comments, approvals, diff |
-| Automatización | Webhooks configurables |
+| Métrica | v0.1.x | v0.2.0 | v0.3.0 (objetivo) |
+|---------|--------|--------|-------------------|
+| Herramientas | 18 | 38 | ~50 |
+| Cobertura API | 40% | 70% | 85% |
 
 ---
 
