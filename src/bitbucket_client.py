@@ -163,20 +163,35 @@ class BitbucketClient:
     def list_repositories(
         self,
         project_key: Optional[str] = None,
+        query: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """List repositories in workspace.
 
         Args:
             project_key: Filter by project (optional)
+            query: Search query using Bitbucket query syntax (optional)
+                   Examples:
+                   - name ~ "anzsic" (partial name match)
+                   - name = "exact-name" (exact name match)
+                   - description ~ "api" (search in description)
+                   - is_private = true (filter by visibility)
             limit: Maximum results to return
 
         Returns:
             List of repository info dicts
         """
         params = {"pagelen": min(limit, 100)}
+
+        # Build query string
+        q_parts = []
         if project_key:
-            params["q"] = f'project.key="{project_key}"'
+            q_parts.append(f'project.key="{project_key}"')
+        if query:
+            q_parts.append(query)
+
+        if q_parts:
+            params["q"] = " AND ".join(q_parts)
 
         result = self._request(
             "GET",

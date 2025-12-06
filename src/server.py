@@ -109,24 +109,50 @@ def delete_repository(repo_slug: str) -> dict:
 
 
 @mcp.tool()
-def list_repositories(project_key: Optional[str] = None, limit: int = 50) -> dict:
-    """List repositories in the workspace.
+def list_repositories(
+    project_key: Optional[str] = None,
+    search: Optional[str] = None,
+    query: Optional[str] = None,
+    limit: int = 50,
+) -> dict:
+    """List and search repositories in the workspace.
 
     Args:
-        project_key: Filter by project (optional)
+        project_key: Filter by project key (optional)
+        search: Simple search term for repository name (optional)
+                Uses fuzzy matching: search="anzsic" finds "anzsic_classifier"
+        query: Advanced Bitbucket query syntax (optional)
+               Examples:
+               - name ~ "api" (partial name match)
+               - description ~ "classifier" (search description)
+               - is_private = false (public repos only)
+               - name ~ "test" AND is_private = true
         limit: Maximum number of results (default: 50)
 
     Returns:
         List of repositories with basic info
     """
     client = get_client()
-    repos = client.list_repositories(project_key=project_key, limit=limit)
+
+    # Convert simple search to query syntax
+    effective_query = query
+    if search and not query:
+        effective_query = f'name ~ "{search}"'
+
+    repos = client.list_repositories(
+        project_key=project_key,
+        query=effective_query,
+        limit=limit,
+    )
     return {
         "count": len(repos),
+        "search": search,
+        "query": effective_query,
         "repositories": [
             {
                 "name": r.get("name"),
                 "full_name": r.get("full_name"),
+                "description": r.get("description", "")[:100] if r.get("description") else "",
                 "is_private": r.get("is_private"),
                 "project": r.get("project", {}).get("key"),
             }
