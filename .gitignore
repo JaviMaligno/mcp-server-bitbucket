@@ -1,0 +1,19 @@
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Build
+dist/
+*.egg-info/
+build/
+
+# Poetry
+poetry.lock
