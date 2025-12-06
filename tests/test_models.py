@@ -25,7 +25,22 @@ from src.models import (
     TagSummary,
     UserPermission,
     WebhookSummary,
+    truncate_timestamp,
 )
+
+
+class TestTruncateTimestamp:
+    def test_truncates_to_minutes(self):
+        assert truncate_timestamp("2025-01-15T14:30:45.123456Z") == "2025-01-15T14:30"
+
+    def test_handles_none(self):
+        assert truncate_timestamp(None) is None
+
+    def test_handles_empty_string(self):
+        assert truncate_timestamp("") == ""
+
+    def test_handles_short_string(self):
+        assert truncate_timestamp("2025-01-15") == "2025-01-15"
 
 
 class TestRepositorySummary:
@@ -41,7 +56,7 @@ class TestRepositorySummary:
         assert model.name == "my-repo"
         assert model.full_name == "workspace/my-repo"
         assert model.description == "A test repo"
-        assert model.is_private is True
+        assert model.private is True
         assert model.project == "PROJ"
 
     def test_truncates_description(self):
@@ -93,6 +108,18 @@ class TestRepositoryDetail:
         assert model.mainbranch == "main"
         assert model.clone_urls == clone_urls
         assert model.project == "DS"
+
+    def test_truncates_timestamps(self):
+        raw = {
+            "name": "repo",
+            "full_name": "ws/repo",
+            "is_private": True,
+            "created_on": "2025-01-01T14:30:45.123456Z",
+            "updated_on": "2025-01-02T09:15:32.789012Z",
+        }
+        model = RepositoryDetail.from_api(raw, {})
+        assert model.created == "2025-01-01T14:30"
+        assert model.updated == "2025-01-02T09:15"
 
 
 class TestPullRequestSummary:
@@ -147,6 +174,18 @@ class TestPullRequestDetail:
         assert model.comment_count == 5
         assert model.task_count == 2
 
+    def test_truncates_timestamps(self):
+        raw = {
+            "id": 1,
+            "title": "PR",
+            "state": "OPEN",
+            "created_on": "2025-01-01T14:30:45.123456Z",
+            "updated_on": "2025-01-02T09:15:32.789012Z",
+        }
+        model = PullRequestDetail.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
+        assert model.updated == "2025-01-02T09:15"
+
 
 class TestCommitSummary:
     def test_truncates_hash_to_12(self):
@@ -159,7 +198,6 @@ class TestCommitSummary:
         model = CommitSummary.from_api(raw)
         assert len(model.hash) == 12
         assert model.hash == "abc123def456"
-        assert model.full_hash == "abc123def456789012345678901234567890"
 
     def test_extracts_first_line_of_message(self):
         raw = {
@@ -174,6 +212,15 @@ class TestCommitSummary:
         raw = {"hash": "abc123", "message": None, "author": {}}
         model = CommitSummary.from_api(raw)
         assert model.message == ""
+
+    def test_truncates_date(self):
+        raw = {
+            "hash": "abc123",
+            "message": "msg",
+            "date": "2025-01-01T14:30:45.123456Z",
+        }
+        model = CommitSummary.from_api(raw)
+        assert model.date == "2025-01-01T14:30"
 
 
 class TestCommitDetail:
@@ -194,6 +241,14 @@ class TestCommitDetail:
         assert model.author_user == "John Doe"
         assert model.parents == ["parent123456"]
 
+    def test_truncates_date(self):
+        raw = {
+            "hash": "abc123",
+            "date": "2025-01-01T14:30:45.123456Z",
+        }
+        model = CommitDetail.from_api(raw)
+        assert model.date == "2025-01-01T14:30"
+
 
 class TestBranchSummary:
     def test_from_api_extracts_fields(self):
@@ -207,9 +262,19 @@ class TestBranchSummary:
         }
         model = BranchSummary.from_api(raw)
         assert model.name == "feature-branch"
-        assert model.target_hash == "abc123def456"
-        assert model.target_message == "Latest commit"
-        assert model.target_date == "2025-01-01T00:00:00Z"
+        assert model.commit == "abc123def456"
+        assert model.message == "Latest commit"
+
+    def test_truncates_date(self):
+        raw = {
+            "name": "branch",
+            "target": {
+                "hash": "abc123",
+                "date": "2025-01-01T14:30:45.123456Z",
+            },
+        }
+        model = BranchSummary.from_api(raw)
+        assert model.date == "2025-01-01T14:30"
 
 
 class TestPipelineSummary:
@@ -238,6 +303,15 @@ class TestPipelineSummary:
         assert model.state == "IN_PROGRESS"
         assert model.result is None
 
+    def test_truncates_created(self):
+        raw = {
+            "uuid": "{uuid}",
+            "state": {"name": "COMPLETED"},
+            "created_on": "2025-01-01T14:30:45.123456Z",
+        }
+        model = PipelineSummary.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
+
 
 class TestPipelineDetail:
     def test_from_api_extracts_all_fields(self):
@@ -251,9 +325,19 @@ class TestPipelineDetail:
             "duration_in_seconds": 3600,
         }
         model = PipelineDetail.from_api(raw)
-        assert model.duration_in_seconds == 3600
-        assert model.completed_on == "2025-01-01T01:00:00Z"
+        assert model.duration_s == 3600
         assert model.result == "FAILED"
+
+    def test_truncates_timestamps(self):
+        raw = {
+            "uuid": "{uuid}",
+            "state": {"name": "COMPLETED"},
+            "created_on": "2025-01-01T14:30:45.123456Z",
+            "completed_on": "2025-01-01T15:45:32.789012Z",
+        }
+        model = PipelineDetail.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
+        assert model.completed == "2025-01-01T15:45"
 
 
 class TestPipelineStep:
@@ -291,6 +375,15 @@ class TestTagSummary:
         assert model.target == ""
         assert model.tagger == ""
 
+    def test_truncates_date(self):
+        raw = {
+            "name": "v1.0.0",
+            "target": {"hash": "abc123"},
+            "date": "2025-01-01T14:30:45.123456Z",
+        }
+        model = TagSummary.from_api(raw)
+        assert model.date == "2025-01-01T14:30"
+
 
 class TestProjectSummary:
     def test_from_api_extracts_fields(self):
@@ -305,6 +398,7 @@ class TestProjectSummary:
         assert model.key == "PROJ"
         assert model.name == "My Project"
         assert model.description == "Project description"
+        assert model.private is True
 
     def test_truncates_description(self):
         raw = {
@@ -315,6 +409,30 @@ class TestProjectSummary:
         }
         model = ProjectSummary.from_api(raw)
         assert len(model.description) == 100
+
+    def test_truncates_created(self):
+        raw = {
+            "key": "P",
+            "name": "P",
+            "is_private": True,
+            "created_on": "2025-01-01T14:30:45.123456Z",
+        }
+        model = ProjectSummary.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
+
+
+class TestProjectDetail:
+    def test_truncates_timestamps(self):
+        raw = {
+            "key": "P",
+            "name": "P",
+            "is_private": True,
+            "created_on": "2025-01-01T14:30:45.123456Z",
+            "updated_on": "2025-01-02T09:15:32.789012Z",
+        }
+        model = ProjectDetail.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
+        assert model.updated == "2025-01-02T09:15"
 
 
 class TestWebhookSummary:
@@ -331,6 +449,15 @@ class TestWebhookSummary:
         assert model.uuid == "{webhook-uuid}"
         assert model.url == "https://example.com/webhook"
         assert model.events == ["repo:push", "pullrequest:created"]
+
+    def test_truncates_created(self):
+        raw = {
+            "uuid": "{uuid}",
+            "url": "https://example.com",
+            "created_at": "2025-01-01T14:30:45.123456Z",
+        }
+        model = WebhookSummary.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
 
 
 class TestEnvironmentSummary:
@@ -366,6 +493,19 @@ class TestDeploymentSummary:
         assert model.commit == "abc123def456"
         assert model.pipeline_uuid == "{pipe-uuid}"
 
+    def test_truncates_timestamps(self):
+        raw = {
+            "uuid": "{uuid}",
+            "state": {
+                "name": "COMPLETED",
+                "started_on": "2025-01-01T14:30:45.123456Z",
+                "completed_on": "2025-01-01T15:45:32.789012Z",
+            },
+        }
+        model = DeploymentSummary.from_api(raw)
+        assert model.started == "2025-01-01T14:30"
+        assert model.completed == "2025-01-01T15:45"
+
 
 class TestCommentSummary:
     def test_from_api_extracts_fields(self):
@@ -382,6 +522,16 @@ class TestCommentSummary:
         assert model.content == "Great PR!"
         assert model.inline == {"path": "src/main.py", "to": 42}
 
+    def test_truncates_timestamps(self):
+        raw = {
+            "id": 1,
+            "created_on": "2025-01-01T14:30:45.123456Z",
+            "updated_on": "2025-01-02T09:15:32.789012Z",
+        }
+        model = CommentSummary.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
+        assert model.updated == "2025-01-02T09:15"
+
 
 class TestCommitStatus:
     def test_from_api_extracts_fields(self):
@@ -397,6 +547,17 @@ class TestCommitStatus:
         assert model.key == "ci-build"
         assert model.state == "SUCCESSFUL"
         assert model.url == "https://ci.example.com/build/123"
+
+    def test_truncates_timestamps(self):
+        raw = {
+            "key": "ci",
+            "state": "SUCCESSFUL",
+            "created_on": "2025-01-01T14:30:45.123456Z",
+            "updated_on": "2025-01-02T09:15:32.789012Z",
+        }
+        model = CommitStatus.from_api(raw)
+        assert model.created == "2025-01-01T14:30"
+        assert model.updated == "2025-01-02T09:15"
 
 
 class TestBranchRestriction:

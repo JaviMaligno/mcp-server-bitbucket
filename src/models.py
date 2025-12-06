@@ -11,6 +11,19 @@ from typing import Any, Optional
 from pydantic import BaseModel, field_validator
 
 
+# ==================== UTILS ====================
+
+
+def truncate_timestamp(ts: Optional[str]) -> Optional[str]:
+    """Truncate ISO timestamp to minute precision.
+
+    2025-01-15T14:30:45.123456Z -> 2025-01-15T14:30
+    """
+    if not ts:
+        return ts
+    return ts[:16] if len(ts) >= 16 else ts
+
+
 # ==================== REPOSITORIES ====================
 
 
@@ -20,7 +33,7 @@ class RepositorySummary(BaseModel):
     name: str
     full_name: str
     description: str = ""
-    is_private: bool = True
+    private: bool = True
     project: Optional[str] = None
 
     @field_validator("description", mode="before")
@@ -34,7 +47,7 @@ class RepositorySummary(BaseModel):
             name=data.get("name", ""),
             full_name=data.get("full_name", ""),
             description=data.get("description"),
-            is_private=data.get("is_private", True),
+            private=data.get("is_private", True),
             project=(data.get("project") or {}).get("key"),
         )
 
@@ -45,12 +58,17 @@ class RepositoryDetail(BaseModel):
     name: str
     full_name: str
     description: str = ""
-    is_private: bool = True
-    created_on: Optional[str] = None
-    updated_on: Optional[str] = None
+    private: bool = True
+    created: Optional[str] = None
+    updated: Optional[str] = None
     mainbranch: Optional[str] = None
     clone_urls: dict[str, str] = {}
     project: Optional[str] = None
+
+    @field_validator("created", "updated", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict, clone_urls: dict[str, str]) -> "RepositoryDetail":
@@ -58,9 +76,9 @@ class RepositoryDetail(BaseModel):
             name=data.get("name", ""),
             full_name=data.get("full_name", ""),
             description=data.get("description", ""),
-            is_private=data.get("is_private", True),
-            created_on=data.get("created_on"),
-            updated_on=data.get("updated_on"),
+            private=data.get("is_private", True),
+            created=data.get("created_on"),
+            updated=data.get("updated_on"),
             mainbranch=(data.get("mainbranch") or {}).get("name"),
             clone_urls=clone_urls,
             project=(data.get("project") or {}).get("key"),
@@ -104,11 +122,16 @@ class PullRequestDetail(BaseModel):
     author: Optional[str] = None
     source_branch: Optional[str] = None
     destination_branch: Optional[str] = None
-    created_on: Optional[str] = None
-    updated_on: Optional[str] = None
+    created: Optional[str] = None
+    updated: Optional[str] = None
     url: str = ""
     comment_count: int = 0
     task_count: int = 0
+
+    @field_validator("created", "updated", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict, url: str = "") -> "PullRequestDetail":
@@ -120,8 +143,8 @@ class PullRequestDetail(BaseModel):
             author=(data.get("author") or {}).get("display_name"),
             source_branch=(data.get("source") or {}).get("branch", {}).get("name"),
             destination_branch=(data.get("destination") or {}).get("branch", {}).get("name"),
-            created_on=data.get("created_on"),
-            updated_on=data.get("updated_on"),
+            created=data.get("created_on"),
+            updated=data.get("updated_on"),
             url=url,
             comment_count=data.get("comment_count", 0),
             task_count=data.get("task_count", 0),
@@ -135,7 +158,6 @@ class CommitSummary(BaseModel):
     """Commit info for list responses."""
 
     hash: str
-    full_hash: str
     message: str
     author: str = ""
     date: Optional[str] = None
@@ -150,11 +172,15 @@ class CommitSummary(BaseModel):
     def first_line(cls, v: Any) -> str:
         return (v or "").split("\n")[0]
 
+    @field_validator("date", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
+
     @classmethod
     def from_api(cls, data: dict) -> "CommitSummary":
         return cls(
             hash=data.get("hash", ""),
-            full_hash=data.get("hash", ""),
             message=data.get("message"),
             author=(data.get("author") or {}).get("raw", ""),
             date=data.get("date"),
@@ -170,6 +196,11 @@ class CommitDetail(BaseModel):
     author_user: Optional[str] = None
     date: Optional[str] = None
     parents: list[str] = []
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "CommitDetail":
@@ -191,28 +222,33 @@ class BranchSummary(BaseModel):
     """Branch info for list responses."""
 
     name: str
-    target_hash: str
-    target_message: str = ""
-    target_date: Optional[str] = None
+    commit: str
+    message: str = ""
+    date: Optional[str] = None
 
-    @field_validator("target_hash", mode="before")
+    @field_validator("commit", mode="before")
     @classmethod
     def truncate_hash(cls, v: Any) -> str:
         return (v or "")[:12]
 
-    @field_validator("target_message", mode="before")
+    @field_validator("message", mode="before")
     @classmethod
     def first_line(cls, v: Any) -> str:
         return (v or "").split("\n")[0]
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "BranchSummary":
         target = data.get("target") or {}
         return cls(
             name=data.get("name", ""),
-            target_hash=target.get("hash", ""),
-            target_message=target.get("message"),
-            target_date=target.get("date"),
+            commit=target.get("hash", ""),
+            message=target.get("message"),
+            date=target.get("date"),
         )
 
 
@@ -227,7 +263,12 @@ class PipelineSummary(BaseModel):
     state: Optional[str] = None
     result: Optional[str] = None
     branch: Optional[str] = None
-    created_on: Optional[str] = None
+    created: Optional[str] = None
+
+    @field_validator("created", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "PipelineSummary":
@@ -239,7 +280,7 @@ class PipelineSummary(BaseModel):
             state=state_data.get("name"),
             result=result_data.get("name") if result_data else None,
             branch=(data.get("target") or {}).get("ref_name"),
-            created_on=data.get("created_on"),
+            created=data.get("created_on"),
         )
 
 
@@ -251,9 +292,14 @@ class PipelineDetail(BaseModel):
     state: Optional[str] = None
     result: Optional[str] = None
     branch: Optional[str] = None
-    created_on: Optional[str] = None
-    completed_on: Optional[str] = None
-    duration_in_seconds: Optional[int] = None
+    created: Optional[str] = None
+    completed: Optional[str] = None
+    duration_s: Optional[int] = None
+
+    @field_validator("created", "completed", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "PipelineDetail":
@@ -265,9 +311,9 @@ class PipelineDetail(BaseModel):
             state=state_data.get("name"),
             result=result_data.get("name") if result_data else None,
             branch=(data.get("target") or {}).get("ref_name"),
-            created_on=data.get("created_on"),
-            completed_on=data.get("completed_on"),
-            duration_in_seconds=data.get("duration_in_seconds"),
+            created=data.get("created_on"),
+            completed=data.get("completed_on"),
+            duration_s=data.get("duration_in_seconds"),
         )
 
 
@@ -303,6 +349,11 @@ class TagSummary(BaseModel):
     tagger: str = ""
     date: Optional[str] = None
 
+    @field_validator("date", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
+
     @classmethod
     def from_api(cls, data: dict) -> "TagSummary":
         target = data.get("target") or {}
@@ -325,13 +376,18 @@ class ProjectSummary(BaseModel):
     key: str
     name: str
     description: str = ""
-    is_private: bool = True
-    created_on: Optional[str] = None
+    private: bool = True
+    created: Optional[str] = None
 
     @field_validator("description", mode="before")
     @classmethod
     def truncate_description(cls, v: Any) -> str:
         return (v or "")[:100]
+
+    @field_validator("created", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "ProjectSummary":
@@ -339,8 +395,8 @@ class ProjectSummary(BaseModel):
             key=data.get("key", ""),
             name=data.get("name", ""),
             description=data.get("description"),
-            is_private=data.get("is_private", True),
-            created_on=data.get("created_on"),
+            private=data.get("is_private", True),
+            created=data.get("created_on"),
         )
 
 
@@ -350,9 +406,14 @@ class ProjectDetail(BaseModel):
     key: str
     name: str
     description: str = ""
-    is_private: bool = True
-    created_on: Optional[str] = None
-    updated_on: Optional[str] = None
+    private: bool = True
+    created: Optional[str] = None
+    updated: Optional[str] = None
+
+    @field_validator("created", "updated", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "ProjectDetail":
@@ -360,9 +421,9 @@ class ProjectDetail(BaseModel):
             key=data.get("key", ""),
             name=data.get("name", ""),
             description=data.get("description", ""),
-            is_private=data.get("is_private", True),
-            created_on=data.get("created_on"),
-            updated_on=data.get("updated_on"),
+            private=data.get("is_private", True),
+            created=data.get("created_on"),
+            updated=data.get("updated_on"),
         )
 
 
@@ -377,7 +438,12 @@ class WebhookSummary(BaseModel):
     description: str = ""
     events: list[str] = []
     active: bool = True
-    created_at: Optional[str] = None
+    created: Optional[str] = None
+
+    @field_validator("created", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "WebhookSummary":
@@ -387,7 +453,7 @@ class WebhookSummary(BaseModel):
             description=data.get("description", ""),
             events=data.get("events", []),
             active=data.get("active", True),
-            created_at=data.get("created_at"),
+            created=data.get("created_at"),
         )
 
 
@@ -419,8 +485,13 @@ class DeploymentSummary(BaseModel):
     state: Optional[str] = None
     commit: str = ""
     pipeline_uuid: Optional[str] = None
-    started_on: Optional[str] = None
-    completed_on: Optional[str] = None
+    started: Optional[str] = None
+    completed: Optional[str] = None
+
+    @field_validator("started", "completed", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "DeploymentSummary":
@@ -432,8 +503,8 @@ class DeploymentSummary(BaseModel):
             state=state_data.get("name"),
             commit=((data.get("commit") or {}).get("hash") or "")[:12],
             pipeline_uuid=pipeline.get("uuid"),
-            started_on=state_data.get("started_on"),
-            completed_on=state_data.get("completed_on"),
+            started=state_data.get("started_on"),
+            completed=state_data.get("completed_on"),
         )
 
 
@@ -446,9 +517,14 @@ class CommentSummary(BaseModel):
     id: int
     author: Optional[str] = None
     content: str = ""
-    created_on: Optional[str] = None
-    updated_on: Optional[str] = None
+    created: Optional[str] = None
+    updated: Optional[str] = None
     inline: Optional[dict] = None
+
+    @field_validator("created", "updated", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "CommentSummary":
@@ -456,8 +532,8 @@ class CommentSummary(BaseModel):
             id=data.get("id", 0),
             author=(data.get("user") or {}).get("display_name"),
             content=(data.get("content") or {}).get("raw", ""),
-            created_on=data.get("created_on"),
-            updated_on=data.get("updated_on"),
+            created=data.get("created_on"),
+            updated=data.get("updated_on"),
             inline=data.get("inline"),
         )
 
@@ -473,8 +549,13 @@ class CommitStatus(BaseModel):
     state: str
     description: str = ""
     url: Optional[str] = None
-    created_on: Optional[str] = None
-    updated_on: Optional[str] = None
+    created: Optional[str] = None
+    updated: Optional[str] = None
+
+    @field_validator("created", "updated", mode="before")
+    @classmethod
+    def truncate_ts(cls, v: Any) -> Optional[str]:
+        return truncate_timestamp(v)
 
     @classmethod
     def from_api(cls, data: dict) -> "CommitStatus":
@@ -484,8 +565,8 @@ class CommitStatus(BaseModel):
             state=data.get("state", ""),
             description=data.get("description", ""),
             url=data.get("url"),
-            created_on=data.get("created_on"),
-            updated_on=data.get("updated_on"),
+            created=data.get("created_on"),
+            updated=data.get("updated_on"),
         )
 
 

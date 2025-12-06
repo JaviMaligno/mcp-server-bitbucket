@@ -93,11 +93,9 @@ def create_repository(
         description=description,
     )
     return {
-        "success": True,
         "name": result.get("name"),
         "full_name": result.get("full_name"),
         "clone_urls": client.extract_clone_urls(result),
-        "html_url": result.get("links", {}).get("html", {}).get("href"),
     }
 
 
@@ -116,7 +114,7 @@ def delete_repository(repo_slug: str) -> dict:
     """
     client = get_client()
     client.delete_repository(repo_slug)
-    return {"success": True, "message": f"Repository '{repo_slug}' deleted"}
+    return {}
 
 
 @mcp.tool()
@@ -156,9 +154,6 @@ def list_repositories(
         limit=limit,
     )
     return {
-        "count": len(repos),
-        "search": search,
-        "query": effective_query,
         "repositories": [RepositorySummary.from_api(r).model_dump() for r in repos],
     }
 
@@ -199,13 +194,10 @@ def create_pull_request(
         close_source_branch=close_source_branch,
     )
     return {
-        "success": True,
         "id": result.get("id"),
         "title": result.get("title"),
         "state": result.get("state"),
         "url": client.extract_pr_url(result),
-        "source_branch": source_branch,
-        "destination_branch": destination_branch,
     }
 
 
@@ -247,8 +239,6 @@ def list_pull_requests(
     client = get_client()
     prs = client.list_pull_requests(repo_slug, state=state, limit=limit)
     return {
-        "count": len(prs),
-        "state_filter": state,
         "pull_requests": [
             PullRequestSummary.from_api(pr, client.extract_pr_url(pr)).model_dump()
             for pr in prs
@@ -286,7 +276,6 @@ def merge_pull_request(
         message=message,
     )
     return {
-        "success": True,
         "id": result.get("id"),
         "state": result.get("state"),
         "merge_commit": result.get("merge_commit", {}).get("hash"),
@@ -321,12 +310,9 @@ def trigger_pipeline(
         variables=variables,
     )
     return {
-        "success": True,
         "uuid": result.get("uuid"),
         "build_number": result.get("build_number"),
         "state": result.get("state", {}).get("name"),
-        "branch": branch,
-        "created_on": result.get("created_on"),
     }
 
 
@@ -363,7 +349,6 @@ def list_pipelines(repo_slug: str, limit: int = 10) -> dict:
     client = get_client()
     pipelines = client.list_pipelines(repo_slug, limit=limit)
     return {
-        "count": len(pipelines),
         "pipelines": [PipelineSummary.from_api(p).model_dump() for p in pipelines],
     }
 
@@ -419,10 +404,8 @@ def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
     client = get_client()
     result = client.stop_pipeline(repo_slug, pipeline_uuid)
     return {
-        "success": True,
         "uuid": result.get("uuid"),
         "state": result.get("state", {}).get("name"),
-        "message": "Pipeline stop requested",
     }
 
 
@@ -442,7 +425,6 @@ def list_projects(limit: int = 50) -> dict:
     client = get_client()
     projects = client.list_projects(limit=limit)
     return {
-        "count": len(projects),
         "projects": [ProjectSummary.from_api(p).model_dump() for p in projects],
     }
 
@@ -501,13 +483,11 @@ def update_repository(
         name=name,
     )
     return {
-        "success": True,
         "name": result.get("name"),
         "full_name": result.get("full_name"),
         "project": result.get("project", {}).get("key"),
-        "is_private": result.get("is_private"),
+        "private": result.get("is_private"),
         "description": result.get("description", ""),
-        "html_url": result.get("links", {}).get("html", {}).get("href"),
     }
 
 
@@ -528,7 +508,6 @@ def list_branches(repo_slug: str, limit: int = 50) -> dict:
     client = get_client()
     branches = client.list_branches(repo_slug, limit=limit)
     return {
-        "count": len(branches),
         "branches": [BranchSummary.from_api(b).model_dump() for b in branches],
     }
 
@@ -585,9 +564,6 @@ def list_commits(
     client = get_client()
     commits = client.list_commits(repo_slug, branch=branch, path=path, limit=limit)
     return {
-        "count": len(commits),
-        "branch": branch,
-        "path": path,
         "commits": [CommitSummary.from_api(c).model_dump() for c in commits],
     }
 
@@ -630,15 +606,12 @@ def compare_commits(repo_slug: str, base: str, head: str) -> dict:
 
     files = result.get("values", [])
     return {
-        "base": base,
-        "head": head,
-        "files_changed": len(files),
         "files": [
             {
                 "path": f.get("new", {}).get("path") or f.get("old", {}).get("path"),
                 "status": f.get("status"),
-                "lines_added": f.get("lines_added", 0),
-                "lines_removed": f.get("lines_removed", 0),
+                "+": f.get("lines_added", 0),
+                "-": f.get("lines_removed", 0),
             }
             for f in files[:50]  # Limit to first 50 files
         ],
@@ -668,7 +641,6 @@ def get_commit_statuses(
     statuses = client.get_commit_statuses(repo_slug, commit, limit=limit)
     return {
         "commit": truncate_hash(commit),
-        "count": len(statuses),
         "statuses": [CommitStatus.from_api(s).model_dump() for s in statuses],
     }
 
@@ -711,7 +683,6 @@ def create_commit_status(
         description=description,
     )
     return {
-        "success": True,
         "key": result.get("key"),
         "state": result.get("state"),
         "name": result.get("name"),
@@ -742,7 +713,6 @@ def list_pr_comments(
     comments = client.list_pr_comments(repo_slug, pr_id, limit=limit)
     return {
         "pr_id": pr_id,
-        "count": len(comments),
         "comments": [CommentSummary.from_api(c).model_dump() for c in comments],
     }
 
@@ -782,7 +752,6 @@ def add_pr_comment(
         inline=inline,
     )
     return {
-        "success": True,
         "id": result.get("id"),
         "content": result.get("content", {}).get("raw", ""),
         "inline": inline,
@@ -804,10 +773,8 @@ def approve_pr(repo_slug: str, pr_id: int) -> dict:
     client = get_client()
     result = client.approve_pr(repo_slug, pr_id)
     return {
-        "success": True,
         "pr_id": pr_id,
         "approved_by": result.get("user", {}).get("display_name"),
-        "approved_on": result.get("date"),
     }
 
 
@@ -825,11 +792,7 @@ def unapprove_pr(repo_slug: str, pr_id: int) -> dict:
     """
     client = get_client()
     client.unapprove_pr(repo_slug, pr_id)
-    return {
-        "success": True,
-        "pr_id": pr_id,
-        "message": "Approval removed",
-    }
+    return {"pr_id": pr_id}
 
 
 @mcp.tool()
@@ -847,10 +810,8 @@ def request_changes_pr(repo_slug: str, pr_id: int) -> dict:
     client = get_client()
     result = client.request_changes_pr(repo_slug, pr_id)
     return {
-        "success": True,
         "pr_id": pr_id,
         "requested_by": result.get("user", {}).get("display_name"),
-        "requested_on": result.get("date"),
     }
 
 
@@ -869,10 +830,8 @@ def decline_pr(repo_slug: str, pr_id: int) -> dict:
     client = get_client()
     result = client.decline_pr(repo_slug, pr_id)
     return {
-        "success": True,
         "pr_id": pr_id,
         "state": result.get("state"),
-        "message": "Pull request declined",
     }
 
 
@@ -921,7 +880,6 @@ def list_environments(repo_slug: str, limit: int = 20) -> dict:
     client = get_client()
     environments = client.list_environments(repo_slug, limit=limit)
     return {
-        "count": len(environments),
         "environments": [EnvironmentSummary.from_api(e).model_dump() for e in environments],
     }
 
@@ -973,8 +931,6 @@ def list_deployment_history(
         repo_slug, environment_uuid, limit=limit
     )
     return {
-        "environment_uuid": environment_uuid,
-        "count": len(deployments),
         "deployments": [DeploymentSummary.from_api(d).model_dump() for d in deployments],
     }
 
@@ -996,7 +952,6 @@ def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
     client = get_client()
     webhooks = client.list_webhooks(repo_slug, limit=limit)
     return {
-        "count": len(webhooks),
         "webhooks": [WebhookSummary.from_api(w).model_dump() for w in webhooks],
     }
 
@@ -1035,7 +990,6 @@ def create_webhook(
         active=active,
     )
     return {
-        "success": True,
         "uuid": result.get("uuid"),
         "url": result.get("url"),
         "events": result.get("events"),
@@ -1076,10 +1030,7 @@ def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
     """
     client = get_client()
     client.delete_webhook(repo_slug, webhook_uuid)
-    return {
-        "success": True,
-        "message": f"Webhook '{webhook_uuid}' deleted",
-    }
+    return {}
 
 
 # ==================== TAGS ====================
@@ -1099,7 +1050,6 @@ def list_tags(repo_slug: str, limit: int = 50) -> dict:
     client = get_client()
     tags = client.list_tags(repo_slug, limit=limit)
     return {
-        "count": len(tags),
         "tags": [TagSummary.from_api(t).model_dump() for t in tags],
     }
 
@@ -1131,7 +1081,6 @@ def create_tag(
         message=message if message else None,
     )
     return {
-        "success": True,
         "name": result.get("name"),
         "target": truncate_hash(result.get("target", {}).get("hash")),
         "message": result.get("message", ""),
@@ -1152,10 +1101,7 @@ def delete_tag(repo_slug: str, tag_name: str) -> dict:
     """
     client = get_client()
     client.delete_tag(repo_slug, tag_name)
-    return {
-        "success": True,
-        "message": f"Tag '{tag_name}' deleted",
-    }
+    return {}
 
 
 # ==================== BRANCH RESTRICTIONS ====================
@@ -1175,7 +1121,6 @@ def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
     client = get_client()
     restrictions = client.list_branch_restrictions(repo_slug, limit=limit)
     return {
-        "count": len(restrictions),
         "restrictions": [BranchRestriction.from_api(r).model_dump() for r in restrictions],
     }
 
@@ -1222,11 +1167,8 @@ def create_branch_restriction(
         value=value if value else None,
     )
     return {
-        "success": True,
         "id": result.get("id"),
         "kind": result.get("kind"),
-        "pattern": result.get("pattern", ""),
-        "branch_match_kind": result.get("branch_match_kind"),
     }
 
 
@@ -1244,10 +1186,7 @@ def delete_branch_restriction(repo_slug: str, restriction_id: int) -> dict:
     """
     client = get_client()
     client.delete_branch_restriction(repo_slug, restriction_id)
-    return {
-        "success": True,
-        "message": f"Branch restriction {restriction_id} deleted",
-    }
+    return {}
 
 
 # ==================== SOURCE (FILE BROWSING) ====================
@@ -1310,7 +1249,6 @@ def list_directory(
     return {
         "path": path or "/",
         "ref": ref,
-        "count": len(entries),
         "entries": [DirectoryEntry.from_api(e).model_dump() for e in entries],
     }
 
@@ -1332,7 +1270,6 @@ def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
     client = get_client()
     permissions = client.list_user_permissions(repo_slug, limit=limit)
     return {
-        "count": len(permissions),
         "users": [UserPermission.from_api(p).model_dump() for p in permissions],
     }
 
@@ -1376,7 +1313,6 @@ def update_user_permission(
     client = get_client()
     result = client.update_user_permission(repo_slug, selected_user, permission)
     return {
-        "success": True,
         "user": result.get("user", {}).get("display_name"),
         "permission": result.get("permission"),
     }
@@ -1396,10 +1332,7 @@ def delete_user_permission(repo_slug: str, selected_user: str) -> dict:
     """
     client = get_client()
     client.delete_user_permission(repo_slug, selected_user)
-    return {
-        "success": True,
-        "message": f"User '{selected_user}' permission removed",
-    }
+    return {}
 
 
 # ==================== REPOSITORY PERMISSIONS - GROUPS ====================
@@ -1419,7 +1352,6 @@ def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
     client = get_client()
     permissions = client.list_group_permissions(repo_slug, limit=limit)
     return {
-        "count": len(permissions),
         "groups": [GroupPermission.from_api(p).model_dump() for p in permissions],
     }
 
@@ -1463,7 +1395,6 @@ def update_group_permission(
     client = get_client()
     result = client.update_group_permission(repo_slug, group_slug, permission)
     return {
-        "success": True,
         "group": result.get("group", {}).get("name"),
         "permission": result.get("permission"),
     }
@@ -1483,10 +1414,7 @@ def delete_group_permission(repo_slug: str, group_slug: str) -> dict:
     """
     client = get_client()
     client.delete_group_permission(repo_slug, group_slug)
-    return {
-        "success": True,
-        "message": f"Group '{group_slug}' permission removed",
-    }
+    return {}
 
 
 def main():
