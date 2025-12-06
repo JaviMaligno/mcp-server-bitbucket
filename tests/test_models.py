@@ -373,7 +373,7 @@ class TestTagSummary:
         raw = {"name": "tag", "target": None, "tagger": None}
         model = TagSummary.from_api(raw)
         assert model.target == ""
-        assert model.tagger == ""
+        assert model.tagger is None
 
     def test_truncates_date(self):
         raw = {
@@ -383,6 +383,37 @@ class TestTagSummary:
         }
         model = TagSummary.from_api(raw)
         assert model.date == "2025-01-01T14:30"
+
+    def test_lightweight_tag_excludes_none(self):
+        """Lightweight tags (no annotation) exclude empty fields from output."""
+        raw = {
+            "name": "v1.0.0",
+            "target": {"hash": "abc123def456789"},
+            "message": None,
+            "tagger": None,
+            "date": None,
+        }
+        model = TagSummary.from_api(raw)
+        dumped = model.model_dump()
+        assert dumped == {"name": "v1.0.0", "target": "abc123def456"}
+        assert "message" not in dumped
+        assert "tagger" not in dumped
+        assert "date" not in dumped
+
+    def test_annotated_tag_includes_all(self):
+        """Annotated tags include message, tagger, and date."""
+        raw = {
+            "name": "v1.0.0",
+            "target": {"hash": "abc123def456789"},
+            "message": "Release",
+            "tagger": {"raw": "John <john@example.com>"},
+            "date": "2025-01-01T14:30:00Z",
+        }
+        model = TagSummary.from_api(raw)
+        dumped = model.model_dump()
+        assert dumped["message"] == "Release"
+        assert dumped["tagger"] == "John <john@example.com>"
+        assert dumped["date"] == "2025-01-01T14:30"
 
 
 class TestProjectSummary:

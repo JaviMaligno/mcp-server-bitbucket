@@ -346,7 +346,7 @@ class TagSummary(BaseModel):
     name: str
     target: str
     message: Optional[str] = None
-    tagger: str = ""
+    tagger: Optional[str] = None
     date: Optional[str] = None
 
     @field_validator("date", mode="before")
@@ -358,13 +358,19 @@ class TagSummary(BaseModel):
     def from_api(cls, data: dict) -> "TagSummary":
         target = data.get("target") or {}
         tagger = data.get("tagger") or {}
+        tagger_raw = tagger.get("raw", "")
         return cls(
             name=data.get("name", ""),
             target=(target.get("hash") or "")[:12],
-            message=data.get("message"),
-            tagger=tagger.get("raw", ""),
+            message=data.get("message") or None,
+            tagger=tagger_raw if tagger_raw else None,
             date=data.get("date"),
         )
+
+    def model_dump(self, **kwargs) -> dict:
+        """Exclude None values to save tokens on lightweight tags."""
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump(**kwargs)
 
 
 # ==================== PROJECTS ====================
