@@ -69,7 +69,7 @@ pip install mcp-server-bitbucket
 ### From Source
 
 ```bash
-git clone https://github.com/simplekyc/bitbucket-mcp.git
+git clone git@bitbucket.org:simplekyc/bitbucket-mcp.git
 cd bitbucket-mcp
 poetry install
 ```
@@ -132,6 +132,53 @@ gcloud run deploy bitbucket-mcp-service \
   --region australia-southeast1 \
   --set-secrets "BITBUCKET_EMAIL=bitbucket-email:latest,BITBUCKET_API_TOKEN=bitbucket-token:latest"
 ```
+
+## Development
+
+### Requirements
+
+- Python 3.11+
+- [Poetry](https://python-poetry.org/) for dependency management
+- [PyPI account](https://pypi.org/account/register/) for publishing
+
+### Setup
+
+```bash
+git clone git@bitbucket.org:simplekyc/bitbucket-mcp.git
+cd bitbucket-mcp
+poetry install
+```
+
+### Running Locally
+
+```bash
+# MCP server (stdio mode)
+poetry run python -m src.server
+
+# HTTP server
+poetry run uvicorn src.http_server:app --reload --port 8080
+```
+
+### Publishing to PyPI
+
+1. **Get a PyPI API Token**:
+   - Go to https://pypi.org/manage/account/token/
+   - Create a token with scope "Entire account" (first time) or project-specific
+   - Configure Poetry: `poetry config pypi-token.pypi pypi-YOUR_TOKEN`
+
+2. **Bump version** in `pyproject.toml`
+
+3. **Build and publish**:
+   ```bash
+   poetry build
+   poetry publish
+   ```
+
+4. **Tag the release**:
+   ```bash
+   git tag v0.x.x
+   git push origin v0.x.x
+   ```
 
 ## Links
 
