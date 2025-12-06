@@ -1,10 +1,13 @@
 """Bitbucket API client for MCP server.
 
 Provides all Bitbucket API operations needed by the MCP tools:
-- Repositories: get, create, delete, list
-- Pull Requests: create, get, list, merge
+- Repositories: get, create, delete, list, update
+- Pull Requests: create, get, list, merge, approve, decline, comments, diff
 - Pipelines: trigger, get, list, logs, stop
 - Branches: list, get
+- Commits: list, get, compare, statuses
+- Deployments: environments, deployment history
+- Webhooks: list, create, get, delete
 """
 from __future__ import annotations
 
@@ -36,9 +39,9 @@ class BitbucketClient:
         Args:
             workspace: Bitbucket workspace (default from env)
             email: Bitbucket email for auth (default from env)
-            api_token: Bitbucket app password (default from env)
+            api_token: Bitbucket access token (default from env)
         """
-        load_dotenv()
+        load_dotenv(override=True)
 
         self.workspace = workspace or os.getenv("BITBUCKET_WORKSPACE", "simplekyc")
         self.email = email or os.getenv("BITBUCKET_EMAIL")
@@ -50,7 +53,7 @@ class BitbucketClient:
             )
 
     def _get_auth(self) -> tuple[str, str]:
-        """Get auth tuple for requests."""
+        """Get auth tuple for Basic Auth requests."""
         return (self.email, self.api_token)
 
     def _url(self, path: str) -> str:
@@ -491,6 +494,565 @@ class BitbucketClient:
             raise BitbucketError(f"Failed to stop pipeline {pipeline_uuid}")
         # Return updated pipeline state
         return self.get_pipeline(repo_slug, pipeline_uuid) or {"stopped": True}
+
+    # ==================== PROJECTS ====================
+
+    def list_projects(
+        self,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List projects in workspace.
+
+        Args:
+            limit: Maximum results to return
+
+        Returns:
+            List of project info dicts
+        """
+        result = self._request(
+            "GET",
+            f"workspaces/{self.workspace}/projects",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def get_project(self, project_key: str) -> Optional[dict[str, Any]]:
+        """Get project information.
+
+        Args:
+            project_key: Project key (e.g., "DS")
+
+        Returns:
+            Project info or None if not found
+        """
+        return self._request(
+            "GET",
+            f"workspaces/{self.workspace}/projects/{project_key}",
+        )
+
+    # ==================== REPOSITORY UPDATE ====================
+
+    def update_repository(
+        self,
+        repo_slug: str,
+        project_key: Optional[str] = None,
+        is_private: Optional[bool] = None,
+        description: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Update repository settings.
+
+        Args:
+            repo_slug: Repository slug
+            project_key: Move to different project (optional)
+            is_private: Change visibility (optional)
+            description: Update description (optional)
+            name: Rename repository (optional)
+
+        Returns:
+            Updated repository info
+        """
+        payload = {}
+        if project_key is not None:
+            payload["project"] = {"key": project_key}
+        if is_private is not None:
+            payload["is_private"] = is_private
+        if description is not None:
+            payload["description"] = description
+        if name is not None:
+            payload["name"] = name
+
+        if not payload:
+            raise BitbucketError("No fields to update")
+
+        result = self._request(
+            "PUT",
+            f"repositories/{self.workspace}/{repo_slug}",
+            json=payload,
+        )
+        if not result:
+            raise BitbucketError(f"Failed to update repository: {repo_slug}")
+        return result
+
+    # ==================== COMMITS ====================
+
+    def list_commits(
+        self,
+        repo_slug: str,
+        branch: Optional[str] = None,
+        path: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """List commits in a repository.
+
+        Args:
+            repo_slug: Repository slug
+            branch: Filter by branch (optional)
+            path: Filter by file path (optional)
+            limit: Maximum results to return
+
+        Returns:
+            List of commit info dicts
+        """
+        params = {"pagelen": min(limit, 100)}
+        if branch:
+            params["include"] = branch
+        if path:
+            params["path"] = path
+
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/commits",
+            params=params,
+        )
+        return result.get("values", []) if result else []
+
+    def get_commit(
+        self, repo_slug: str, commit: str
+    ) -> Optional[dict[str, Any]]:
+        """Get commit details.
+
+        Args:
+            repo_slug: Repository slug
+            commit: Commit hash (full or short)
+
+        Returns:
+            Commit info or None if not found
+        """
+        return self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/commit/{commit}",
+        )
+
+    def compare_commits(
+        self,
+        repo_slug: str,
+        base: str,
+        head: str,
+    ) -> Optional[dict[str, Any]]:
+        """Compare two commits or branches (get diff).
+
+        Args:
+            repo_slug: Repository slug
+            base: Base commit/branch
+            head: Head commit/branch
+
+        Returns:
+            Diff info including files changed
+        """
+        # Use diffstat for summary, diff for full content
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/diffstat/{base}..{head}",
+        )
+        return result
+
+    # ==================== COMMIT STATUSES ====================
+
+    def get_commit_statuses(
+        self,
+        repo_slug: str,
+        commit: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Get build/CI statuses for a commit.
+
+        Args:
+            repo_slug: Repository slug
+            commit: Commit hash
+            limit: Maximum results to return
+
+        Returns:
+            List of status info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/commit/{commit}/statuses",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def create_commit_status(
+        self,
+        repo_slug: str,
+        commit: str,
+        state: str,
+        key: str,
+        url: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create a build status for a commit.
+
+        Args:
+            repo_slug: Repository slug
+            commit: Commit hash
+            state: Status state (SUCCESSFUL, FAILED, INPROGRESS, STOPPED)
+            key: Unique identifier for this status
+            url: URL to the build (optional)
+            name: Display name (optional)
+            description: Status description (optional)
+
+        Returns:
+            Created status info
+        """
+        payload = {
+            "state": state,
+            "key": key,
+        }
+        if url:
+            payload["url"] = url
+        if name:
+            payload["name"] = name
+        if description:
+            payload["description"] = description
+
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/commit/{commit}/statuses/build",
+            json=payload,
+        )
+        if not result:
+            raise BitbucketError(f"Failed to create status for commit {commit}")
+        return result
+
+    # ==================== PR COMMENTS & REVIEWS ====================
+
+    def list_pr_comments(
+        self,
+        repo_slug: str,
+        pr_id: int,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List comments on a pull request.
+
+        Args:
+            repo_slug: Repository slug
+            pr_id: Pull request ID
+            limit: Maximum results to return
+
+        Returns:
+            List of comment info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def add_pr_comment(
+        self,
+        repo_slug: str,
+        pr_id: int,
+        content: str,
+        inline: Optional[dict] = None,
+    ) -> dict[str, Any]:
+        """Add a comment to a pull request.
+
+        Args:
+            repo_slug: Repository slug
+            pr_id: Pull request ID
+            content: Comment content (markdown supported)
+            inline: Inline comment location (optional)
+                    {"path": "file.py", "to": 10} for line comment
+
+        Returns:
+            Created comment info
+        """
+        payload = {
+            "content": {"raw": content}
+        }
+        if inline:
+            payload["inline"] = inline
+
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments",
+            json=payload,
+        )
+        if not result:
+            raise BitbucketError(f"Failed to add comment to PR #{pr_id}")
+        return result
+
+    def approve_pr(
+        self, repo_slug: str, pr_id: int
+    ) -> dict[str, Any]:
+        """Approve a pull request.
+
+        Args:
+            repo_slug: Repository slug
+            pr_id: Pull request ID
+
+        Returns:
+            Approval info
+        """
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve",
+        )
+        if not result:
+            raise BitbucketError(f"Failed to approve PR #{pr_id}")
+        return result
+
+    def unapprove_pr(
+        self, repo_slug: str, pr_id: int
+    ) -> bool:
+        """Remove approval from a pull request.
+
+        Args:
+            repo_slug: Repository slug
+            pr_id: Pull request ID
+
+        Returns:
+            True if successful
+        """
+        self._request(
+            "DELETE",
+            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve",
+        )
+        return True
+
+    def request_changes_pr(
+        self, repo_slug: str, pr_id: int
+    ) -> dict[str, Any]:
+        """Request changes on a pull request.
+
+        Args:
+            repo_slug: Repository slug
+            pr_id: Pull request ID
+
+        Returns:
+            Request info
+        """
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/request-changes",
+        )
+        if not result:
+            raise BitbucketError(f"Failed to request changes on PR #{pr_id}")
+        return result
+
+    def decline_pr(
+        self, repo_slug: str, pr_id: int
+    ) -> dict[str, Any]:
+        """Decline (close) a pull request.
+
+        Args:
+            repo_slug: Repository slug
+            pr_id: Pull request ID
+
+        Returns:
+            Declined PR info
+        """
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/decline",
+        )
+        if not result:
+            raise BitbucketError(f"Failed to decline PR #{pr_id}")
+        return result
+
+    def get_pr_diff(
+        self, repo_slug: str, pr_id: int
+    ) -> str:
+        """Get diff of a pull request.
+
+        Args:
+            repo_slug: Repository slug
+            pr_id: Pull request ID
+
+        Returns:
+            Diff content as string
+        """
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
+            r = client.get(
+                self._url(
+                    f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/diff"
+                ),
+                auth=self._get_auth(),
+            )
+            if r.status_code == 200:
+                return r.text
+            elif r.status_code == 404:
+                return ""
+            else:
+                raise BitbucketError(f"Failed to get PR diff: {r.status_code}")
+
+    # ==================== DEPLOYMENTS ====================
+
+    def list_environments(
+        self,
+        repo_slug: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """List deployment environments.
+
+        Args:
+            repo_slug: Repository slug
+            limit: Maximum results to return
+
+        Returns:
+            List of environment info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/environments",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def get_environment(
+        self, repo_slug: str, environment_uuid: str
+    ) -> Optional[dict[str, Any]]:
+        """Get deployment environment details.
+
+        Args:
+            repo_slug: Repository slug
+            environment_uuid: Environment UUID
+
+        Returns:
+            Environment info or None if not found
+        """
+        if not environment_uuid.startswith("{"):
+            environment_uuid = f"{{{environment_uuid}}}"
+
+        return self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/environments/{environment_uuid}",
+        )
+
+    def list_deployment_history(
+        self,
+        repo_slug: str,
+        environment_uuid: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Get deployment history for an environment.
+
+        Args:
+            repo_slug: Repository slug
+            environment_uuid: Environment UUID
+            limit: Maximum results to return
+
+        Returns:
+            List of deployment info dicts
+        """
+        if not environment_uuid.startswith("{"):
+            environment_uuid = f"{{{environment_uuid}}}"
+
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/deployments",
+            params={
+                "pagelen": min(limit, 100),
+                "environment": environment_uuid,
+                "sort": "-state.started_on",
+            },
+        )
+        return result.get("values", []) if result else []
+
+    # ==================== WEBHOOKS ====================
+
+    def list_webhooks(
+        self,
+        repo_slug: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List webhooks for a repository.
+
+        Args:
+            repo_slug: Repository slug
+            limit: Maximum results to return
+
+        Returns:
+            List of webhook info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/hooks",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def create_webhook(
+        self,
+        repo_slug: str,
+        url: str,
+        events: list[str],
+        description: str = "",
+        active: bool = True,
+    ) -> dict[str, Any]:
+        """Create a webhook.
+
+        Args:
+            repo_slug: Repository slug
+            url: Webhook URL to call
+            events: List of events to trigger on
+                    e.g., ["repo:push", "pullrequest:created", "pullrequest:merged"]
+            description: Webhook description
+            active: Whether webhook is active
+
+        Returns:
+            Created webhook info
+        """
+        payload = {
+            "url": url,
+            "events": events,
+            "active": active,
+        }
+        if description:
+            payload["description"] = description
+
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/hooks",
+            json=payload,
+        )
+        if not result:
+            raise BitbucketError("Failed to create webhook")
+        return result
+
+    def get_webhook(
+        self, repo_slug: str, webhook_uid: str
+    ) -> Optional[dict[str, Any]]:
+        """Get webhook details.
+
+        Args:
+            repo_slug: Repository slug
+            webhook_uid: Webhook UID
+
+        Returns:
+            Webhook info or None if not found
+        """
+        if not webhook_uid.startswith("{"):
+            webhook_uid = f"{{{webhook_uid}}}"
+
+        return self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/hooks/{webhook_uid}",
+        )
+
+    def delete_webhook(
+        self, repo_slug: str, webhook_uid: str
+    ) -> bool:
+        """Delete a webhook.
+
+        Args:
+            repo_slug: Repository slug
+            webhook_uid: Webhook UID
+
+        Returns:
+            True if deleted successfully
+        """
+        if not webhook_uid.startswith("{"):
+            webhook_uid = f"{{{webhook_uid}}}"
+
+        self._request(
+            "DELETE",
+            f"repositories/{self.workspace}/{repo_slug}/hooks/{webhook_uid}",
+        )
+        return True
 
     # ==================== BRANCHES ====================
 

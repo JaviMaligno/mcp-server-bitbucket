@@ -45,6 +45,8 @@ Bitbucket uses **Repository Access Tokens** or **Workspace Access Tokens** for A
      - **Repository**: Read, Write, Admin, Delete
      - **Pull requests**: Read, Write
      - **Pipelines**: Read, Write
+     - **Projects**: Read (for list_projects, get_project)
+     - **Webhooks**: Read, Write (for webhook management)
 5. Click **Create**
 6. **Copy the token immediately** - it won't be shown again!
 
@@ -58,6 +60,8 @@ Bitbucket uses **Repository Access Tokens** or **Workspace Access Tokens** for A
      - **Repositories**: Read, Write, Admin, Delete
      - **Pull requests**: Read, Write
      - **Pipelines**: Read, Write
+     - **Projects**: Read
+     - **Webhooks**: Read, Write
 4. Click **Create**
 5. **Copy the token immediately**
 
@@ -65,14 +69,17 @@ Bitbucket uses **Repository Access Tokens** or **Workspace Access Tokens** for A
 
 | Scope | Permission | Used for |
 |-------|------------|----------|
-| Repositories | Read | `list_repositories`, `get_repository`, `list_branches`, `get_branch` |
-| Repositories | Write | `create_repository` |
-| Repositories | Admin | Repository settings |
+| Repositories | Read | `list_repositories`, `get_repository`, `list_branches`, `get_branch`, `list_commits`, `get_commit`, `compare_commits`, `get_commit_statuses` |
+| Repositories | Write | `create_repository`, `create_commit_status` |
+| Repositories | Admin | Repository settings, `update_repository` |
 | Repositories | Delete | `delete_repository` |
-| Pull requests | Read | `list_pull_requests`, `get_pull_request` |
-| Pull requests | Write | `create_pull_request`, `merge_pull_request` |
-| Pipelines | Read | `list_pipelines`, `get_pipeline`, `get_pipeline_logs` |
+| Pull requests | Read | `list_pull_requests`, `get_pull_request`, `list_pr_comments`, `get_pr_diff` |
+| Pull requests | Write | `create_pull_request`, `merge_pull_request`, `approve_pr`, `unapprove_pr`, `request_changes_pr`, `decline_pr`, `add_pr_comment` |
+| Pipelines | Read | `list_pipelines`, `get_pipeline`, `get_pipeline_logs`, `list_environments`, `get_environment`, `list_deployment_history` |
 | Pipelines | Write | `trigger_pipeline`, `stop_pipeline` |
+| Projects | Read | `list_projects`, `get_project` |
+| Webhooks | Read | `list_webhooks`, `get_webhook` |
+| Webhooks | Write | `create_webhook`, `delete_webhook` |
 
 ## Step 3: Configure Claude Code
 
@@ -156,39 +163,107 @@ Start a Claude Code session and test:
 > List my Bitbucket repositories
 ```
 
-## Available Tools
+## Available Tools (38 total)
 
+### Repositories
 | Tool | Description |
 |------|-------------|
-| `list_repositories` | List repositories in workspace |
+| `list_repositories` | List and search repositories |
 | `get_repository` | Get repository details |
 | `create_repository` | Create a new repository |
 | `delete_repository` | Delete a repository |
+| `update_repository` | Update repo settings |
+
+### Branches & Commits
+| Tool | Description |
+|------|-------------|
 | `list_branches` | List branches in a repo |
 | `get_branch` | Get branch details |
-| `list_pull_requests` | List PRs (open, merged, etc.) |
+| `list_commits` | List commits |
+| `get_commit` | Get commit details |
+| `compare_commits` | Compare two commits/branches |
+
+### Commit Statuses
+| Tool | Description |
+|------|-------------|
+| `get_commit_statuses` | Get CI/CD statuses for a commit |
+| `create_commit_status` | Report build status |
+
+### Pull Requests
+| Tool | Description |
+|------|-------------|
+| `list_pull_requests` | List PRs |
 | `get_pull_request` | Get PR details |
 | `create_pull_request` | Create a new PR |
 | `merge_pull_request` | Merge a PR |
-| `list_pipelines` | List recent pipeline runs |
+| `approve_pr` | Approve a PR |
+| `unapprove_pr` | Remove approval |
+| `request_changes_pr` | Request changes |
+| `decline_pr` | Decline a PR |
+| `list_pr_comments` | List PR comments |
+| `add_pr_comment` | Add a comment |
+| `get_pr_diff` | Get PR diff |
+
+### Pipelines
+| Tool | Description |
+|------|-------------|
+| `list_pipelines` | List pipeline runs |
 | `get_pipeline` | Get pipeline status |
 | `get_pipeline_logs` | View pipeline logs |
-| `trigger_pipeline` | Trigger a pipeline run |
-| `stop_pipeline` | Stop a running pipeline |
+| `trigger_pipeline` | Trigger a pipeline |
+| `stop_pipeline` | Stop a pipeline |
+
+### Deployments
+| Tool | Description |
+|------|-------------|
+| `list_environments` | List environments |
+| `get_environment` | Get environment details |
+| `list_deployment_history` | Get deployment history |
+
+### Webhooks
+| Tool | Description |
+|------|-------------|
+| `list_webhooks` | List webhooks |
+| `create_webhook` | Create a webhook |
+| `get_webhook` | Get webhook details |
+| `delete_webhook` | Delete a webhook |
+
+### Projects
+| Tool | Description |
+|------|-------------|
+| `list_projects` | List projects |
+| `get_project` | Get project details |
 
 ## Example Usage
 
 Once configured, you can ask Claude to:
 
+**Repositories & Commits:**
 - "List all repositories in my workspace"
 - "Search for repositories with 'api' in the name"
-- "Find all private repos containing 'test'"
-- "Show me open pull requests in anzsic_classifier"
-- "Create a PR from feature-branch to main with title 'Add new feature'"
-- "Trigger a pipeline on the develop branch"
-- "What's the status of the latest pipeline?"
-- "Show me the logs for the failed pipeline step"
+- "Show me the last 10 commits on main"
+- "Compare develop branch with main"
+
+**Pull Requests & Code Review:**
+- "Show me open pull requests in my-repo"
+- "Create a PR from feature-branch to main"
+- "Approve PR #42"
+- "Add a comment to PR #15"
+- "Show me the diff for PR #42"
 - "Merge PR #42 using squash strategy"
+
+**Pipelines & CI/CD:**
+- "Trigger a pipeline on develop"
+- "What's the status of the latest pipeline?"
+- "Get build status for commit abc123"
+
+**Deployments:**
+- "List deployment environments"
+- "Show deployment history for production"
+
+**Webhooks:**
+- "List webhooks for my-repo"
+- "Create a webhook for push events"
 
 ### Repository Search
 

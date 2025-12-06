@@ -1,7 +1,7 @@
 """Bitbucket MCP Server using FastMCP.
 
 Provides tools for interacting with Bitbucket repositories,
-pull requests, pipelines, and branches.
+pull requests, pipelines, branches, commits, deployments, and webhooks.
 
 Usage:
     # Run as stdio server (for Claude Desktop/Code)
@@ -485,6 +485,109 @@ def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+# ==================== PROJECT TOOLS ====================
+
+
+@mcp.tool()
+def list_projects(limit: int = 50) -> dict:
+    """List projects in the workspace.
+
+    Args:
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of projects with key, name, and description
+    """
+    client = get_client()
+    projects = client.list_projects(limit=limit)
+    return {
+        "count": len(projects),
+        "projects": [
+            {
+                "key": p.get("key"),
+                "name": p.get("name"),
+                "description": p.get("description", "")[:100] if p.get("description") else "",
+                "is_private": p.get("is_private"),
+                "created_on": p.get("created_on"),
+            }
+            for p in projects
+        ],
+    }
+
+
+@mcp.tool()
+def get_project(project_key: str) -> dict:
+    """Get information about a specific project.
+
+    Args:
+        project_key: Project key (e.g., "DS", "PROJ")
+
+    Returns:
+        Project info including name, description, and metadata
+    """
+    client = get_client()
+    result = client.get_project(project_key)
+    if not result:
+        return {"error": f"Project '{project_key}' not found"}
+
+    return {
+        "key": result.get("key"),
+        "name": result.get("name"),
+        "description": result.get("description", ""),
+        "is_private": result.get("is_private"),
+        "created_on": result.get("created_on"),
+        "updated_on": result.get("updated_on"),
+    }
+
+
+# ==================== REPOSITORY UPDATE TOOLS ====================
+
+
+@mcp.tool()
+def update_repository(
+    repo_slug: str,
+    project_key: Optional[str] = None,
+    is_private: Optional[bool] = None,
+    description: Optional[str] = None,
+    name: Optional[str] = None,
+) -> dict:
+    """Update repository settings (project, visibility, description, name).
+
+    Use this to move a repository to a different project, change visibility,
+    update description, or rename the repository.
+
+    Args:
+        repo_slug: Repository slug (e.g., "anzsic_classifier")
+        project_key: Move to different project (optional, e.g., "DS")
+        is_private: Change visibility (optional)
+        description: Update description (optional)
+        name: Rename repository (optional)
+
+    Returns:
+        Updated repository info
+    """
+    client = get_client()
+    try:
+        result = client.update_repository(
+            repo_slug=repo_slug,
+            project_key=project_key,
+            is_private=is_private,
+            description=description,
+            name=name,
+        )
+        return {
+            "success": True,
+            "name": result.get("name"),
+            "full_name": result.get("full_name"),
+            "project": result.get("project", {}).get("key"),
+            "is_private": result.get("is_private"),
+            "description": result.get("description", ""),
+            "html_url": result.get("links", {}).get("html", {}).get("href"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
 # ==================== BRANCH TOOLS ====================
 
 
@@ -543,6 +646,619 @@ def get_branch(repo_slug: str, branch_name: str) -> dict:
             "date": target.get("date"),
         },
     }
+
+
+# ==================== COMMIT TOOLS ====================
+
+
+@mcp.tool()
+def list_commits(
+    repo_slug: str,
+    branch: Optional[str] = None,
+    path: Optional[str] = None,
+    limit: int = 20,
+) -> dict:
+    """List commits in a repository.
+
+    Args:
+        repo_slug: Repository slug
+        branch: Filter by branch name (optional)
+        path: Filter by file path - only commits that modified this path (optional)
+        limit: Maximum number of results (default: 20)
+
+    Returns:
+        List of commits with hash, message, author, and date
+    """
+    client = get_client()
+    commits = client.list_commits(repo_slug, branch=branch, path=path, limit=limit)
+    return {
+        "count": len(commits),
+        "branch": branch,
+        "path": path,
+        "commits": [
+            {
+                "hash": c.get("hash", "")[:12],
+                "full_hash": c.get("hash"),
+                "message": c.get("message", "").split("\n")[0],
+                "author": c.get("author", {}).get("raw", ""),
+                "date": c.get("date"),
+            }
+            for c in commits
+        ],
+    }
+
+
+@mcp.tool()
+def get_commit(repo_slug: str, commit: str) -> dict:
+    """Get detailed information about a specific commit.
+
+    Args:
+        repo_slug: Repository slug
+        commit: Commit hash (full or short)
+
+    Returns:
+        Commit details including message, author, date, and parents
+    """
+    client = get_client()
+    result = client.get_commit(repo_slug, commit)
+    if not result:
+        return {"error": f"Commit '{commit}' not found in {repo_slug}"}
+
+    return {
+        "hash": result.get("hash"),
+        "message": result.get("message", ""),
+        "author": {
+            "raw": result.get("author", {}).get("raw"),
+            "user": result.get("author", {}).get("user", {}).get("display_name"),
+        },
+        "date": result.get("date"),
+        "parents": [p.get("hash", "")[:12] for p in result.get("parents", [])],
+    }
+
+
+@mcp.tool()
+def compare_commits(repo_slug: str, base: str, head: str) -> dict:
+    """Compare two commits or branches and see files changed.
+
+    Args:
+        repo_slug: Repository slug
+        base: Base commit hash or branch name
+        head: Head commit hash or branch name
+
+    Returns:
+        Diff statistics showing files added, modified, and removed
+    """
+    client = get_client()
+    result = client.compare_commits(repo_slug, base, head)
+    if not result:
+        return {"error": f"Could not compare {base}..{head}"}
+
+    files = result.get("values", [])
+    return {
+        "base": base,
+        "head": head,
+        "files_changed": len(files),
+        "files": [
+            {
+                "path": f.get("new", {}).get("path") or f.get("old", {}).get("path"),
+                "status": f.get("status"),
+                "lines_added": f.get("lines_added", 0),
+                "lines_removed": f.get("lines_removed", 0),
+            }
+            for f in files[:50]  # Limit to first 50 files
+        ],
+    }
+
+
+# ==================== COMMIT STATUS TOOLS ====================
+
+
+@mcp.tool()
+def get_commit_statuses(
+    repo_slug: str,
+    commit: str,
+    limit: int = 20,
+) -> dict:
+    """Get build/CI statuses for a commit.
+
+    Args:
+        repo_slug: Repository slug
+        commit: Commit hash
+        limit: Maximum number of results (default: 20)
+
+    Returns:
+        List of CI/CD statuses (builds, checks) for the commit
+    """
+    client = get_client()
+    statuses = client.get_commit_statuses(repo_slug, commit, limit=limit)
+    return {
+        "commit": commit[:12],
+        "count": len(statuses),
+        "statuses": [
+            {
+                "key": s.get("key"),
+                "name": s.get("name"),
+                "state": s.get("state"),
+                "description": s.get("description", ""),
+                "url": s.get("url"),
+                "created_on": s.get("created_on"),
+                "updated_on": s.get("updated_on"),
+            }
+            for s in statuses
+        ],
+    }
+
+
+@mcp.tool()
+def create_commit_status(
+    repo_slug: str,
+    commit: str,
+    state: str,
+    key: str,
+    url: Optional[str] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+) -> dict:
+    """Create a build status for a commit.
+
+    Use this to report CI/CD status from external systems.
+
+    Args:
+        repo_slug: Repository slug
+        commit: Commit hash
+        state: Status state - one of: SUCCESSFUL, FAILED, INPROGRESS, STOPPED
+        key: Unique identifier for this status (e.g., "my-ci-system")
+        url: URL to the build details (optional)
+        name: Display name for the status (optional)
+        description: Status description (optional)
+
+    Returns:
+        Created status info
+    """
+    client = get_client()
+    try:
+        result = client.create_commit_status(
+            repo_slug=repo_slug,
+            commit=commit,
+            state=state,
+            key=key,
+            url=url,
+            name=name,
+            description=description,
+        )
+        return {
+            "success": True,
+            "key": result.get("key"),
+            "state": result.get("state"),
+            "name": result.get("name"),
+            "url": result.get("url"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+# ==================== PR COMMENT & REVIEW TOOLS ====================
+
+
+@mcp.tool()
+def list_pr_comments(
+    repo_slug: str,
+    pr_id: int,
+    limit: int = 50,
+) -> dict:
+    """List comments on a pull request.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of comments with author, content, and timestamps
+    """
+    client = get_client()
+    comments = client.list_pr_comments(repo_slug, pr_id, limit=limit)
+    return {
+        "pr_id": pr_id,
+        "count": len(comments),
+        "comments": [
+            {
+                "id": c.get("id"),
+                "author": c.get("user", {}).get("display_name"),
+                "content": c.get("content", {}).get("raw", ""),
+                "created_on": c.get("created_on"),
+                "updated_on": c.get("updated_on"),
+                "inline": c.get("inline"),  # None for general comments
+            }
+            for c in comments
+        ],
+    }
+
+
+@mcp.tool()
+def add_pr_comment(
+    repo_slug: str,
+    pr_id: int,
+    content: str,
+    file_path: Optional[str] = None,
+    line: Optional[int] = None,
+) -> dict:
+    """Add a comment to a pull request.
+
+    Can add general comments or inline comments on specific lines.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+        content: Comment content (markdown supported)
+        file_path: File path for inline comment (optional)
+        line: Line number for inline comment (optional, requires file_path)
+
+    Returns:
+        Created comment info
+    """
+    client = get_client()
+    try:
+        inline = None
+        if file_path and line:
+            inline = {"path": file_path, "to": line}
+
+        result = client.add_pr_comment(
+            repo_slug=repo_slug,
+            pr_id=pr_id,
+            content=content,
+            inline=inline,
+        )
+        return {
+            "success": True,
+            "id": result.get("id"),
+            "content": result.get("content", {}).get("raw", ""),
+            "inline": inline,
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def approve_pr(repo_slug: str, pr_id: int) -> dict:
+    """Approve a pull request.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        Approval confirmation
+    """
+    client = get_client()
+    try:
+        result = client.approve_pr(repo_slug, pr_id)
+        return {
+            "success": True,
+            "pr_id": pr_id,
+            "approved_by": result.get("user", {}).get("display_name"),
+            "approved_on": result.get("date"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def unapprove_pr(repo_slug: str, pr_id: int) -> dict:
+    """Remove your approval from a pull request.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        Confirmation of approval removal
+    """
+    client = get_client()
+    try:
+        client.unapprove_pr(repo_slug, pr_id)
+        return {
+            "success": True,
+            "pr_id": pr_id,
+            "message": "Approval removed",
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def request_changes_pr(repo_slug: str, pr_id: int) -> dict:
+    """Request changes on a pull request.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        Confirmation of change request
+    """
+    client = get_client()
+    try:
+        result = client.request_changes_pr(repo_slug, pr_id)
+        return {
+            "success": True,
+            "pr_id": pr_id,
+            "requested_by": result.get("user", {}).get("display_name"),
+            "requested_on": result.get("date"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def decline_pr(repo_slug: str, pr_id: int) -> dict:
+    """Decline (close without merging) a pull request.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        Declined PR info
+    """
+    client = get_client()
+    try:
+        result = client.decline_pr(repo_slug, pr_id)
+        return {
+            "success": True,
+            "pr_id": pr_id,
+            "state": result.get("state"),
+            "message": "Pull request declined",
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_pr_diff(repo_slug: str, pr_id: int) -> dict:
+    """Get the diff of a pull request.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        Diff content as text
+    """
+    client = get_client()
+    try:
+        diff = client.get_pr_diff(repo_slug, pr_id)
+        if not diff:
+            return {"error": f"PR #{pr_id} not found or has no diff"}
+
+        # Truncate if too long
+        max_length = 50000
+        truncated = len(diff) > max_length
+        return {
+            "pr_id": pr_id,
+            "diff": diff[:max_length] if truncated else diff,
+            "truncated": truncated,
+            "total_length": len(diff),
+        }
+    except BitbucketError as e:
+        return {"error": str(e)}
+
+
+# ==================== DEPLOYMENT TOOLS ====================
+
+
+@mcp.tool()
+def list_environments(repo_slug: str, limit: int = 20) -> dict:
+    """List deployment environments for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        limit: Maximum number of results (default: 20)
+
+    Returns:
+        List of environments (e.g., test, staging, production)
+    """
+    client = get_client()
+    environments = client.list_environments(repo_slug, limit=limit)
+    return {
+        "count": len(environments),
+        "environments": [
+            {
+                "uuid": e.get("uuid"),
+                "name": e.get("name"),
+                "environment_type": e.get("environment_type", {}).get("name"),
+                "rank": e.get("rank"),
+            }
+            for e in environments
+        ],
+    }
+
+
+@mcp.tool()
+def get_environment(repo_slug: str, environment_uuid: str) -> dict:
+    """Get details about a specific deployment environment.
+
+    Args:
+        repo_slug: Repository slug
+        environment_uuid: Environment UUID (from list_environments)
+
+    Returns:
+        Environment details including restrictions and variables
+    """
+    client = get_client()
+    result = client.get_environment(repo_slug, environment_uuid)
+    if not result:
+        return {"error": f"Environment '{environment_uuid}' not found"}
+
+    return {
+        "uuid": result.get("uuid"),
+        "name": result.get("name"),
+        "environment_type": result.get("environment_type", {}).get("name"),
+        "rank": result.get("rank"),
+        "restrictions": result.get("restrictions"),
+        "lock": result.get("lock"),
+    }
+
+
+@mcp.tool()
+def list_deployment_history(
+    repo_slug: str,
+    environment_uuid: str,
+    limit: int = 20,
+) -> dict:
+    """Get deployment history for a specific environment.
+
+    Args:
+        repo_slug: Repository slug
+        environment_uuid: Environment UUID (from list_environments)
+        limit: Maximum number of results (default: 20)
+
+    Returns:
+        List of deployments with status, commit, and timestamps
+    """
+    client = get_client()
+    deployments = client.list_deployment_history(
+        repo_slug, environment_uuid, limit=limit
+    )
+    return {
+        "environment_uuid": environment_uuid,
+        "count": len(deployments),
+        "deployments": [
+            {
+                "uuid": d.get("uuid"),
+                "state": d.get("state", {}).get("name"),
+                "commit": d.get("commit", {}).get("hash", "")[:12],
+                "pipeline_uuid": d.get("release", {}).get("pipeline", {}).get("uuid"),
+                "started_on": d.get("state", {}).get("started_on"),
+                "completed_on": d.get("state", {}).get("completed_on"),
+            }
+            for d in deployments
+        ],
+    }
+
+
+# ==================== WEBHOOK TOOLS ====================
+
+
+@mcp.tool()
+def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
+    """List webhooks configured for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of webhooks with URL, events, and status
+    """
+    client = get_client()
+    webhooks = client.list_webhooks(repo_slug, limit=limit)
+    return {
+        "count": len(webhooks),
+        "webhooks": [
+            {
+                "uuid": w.get("uuid"),
+                "url": w.get("url"),
+                "description": w.get("description", ""),
+                "events": w.get("events", []),
+                "active": w.get("active"),
+                "created_at": w.get("created_at"),
+            }
+            for w in webhooks
+        ],
+    }
+
+
+@mcp.tool()
+def create_webhook(
+    repo_slug: str,
+    url: str,
+    events: list,
+    description: str = "",
+    active: bool = True,
+) -> dict:
+    """Create a webhook for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        url: URL to call when events occur
+        events: List of events to trigger on. Common events:
+                - repo:push (code pushed)
+                - pullrequest:created, pullrequest:updated, pullrequest:merged
+                - pullrequest:approved, pullrequest:unapproved
+                - pullrequest:comment_created
+        description: Webhook description (optional)
+        active: Whether webhook is active (default: True)
+
+    Returns:
+        Created webhook info with UUID
+    """
+    client = get_client()
+    try:
+        result = client.create_webhook(
+            repo_slug=repo_slug,
+            url=url,
+            events=events,
+            description=description,
+            active=active,
+        )
+        return {
+            "success": True,
+            "uuid": result.get("uuid"),
+            "url": result.get("url"),
+            "events": result.get("events"),
+            "active": result.get("active"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_webhook(repo_slug: str, webhook_uuid: str) -> dict:
+    """Get details about a specific webhook.
+
+    Args:
+        repo_slug: Repository slug
+        webhook_uuid: Webhook UUID (from list_webhooks)
+
+    Returns:
+        Webhook details including URL, events, and status
+    """
+    client = get_client()
+    result = client.get_webhook(repo_slug, webhook_uuid)
+    if not result:
+        return {"error": f"Webhook '{webhook_uuid}' not found"}
+
+    return {
+        "uuid": result.get("uuid"),
+        "url": result.get("url"),
+        "description": result.get("description", ""),
+        "events": result.get("events", []),
+        "active": result.get("active"),
+        "created_at": result.get("created_at"),
+    }
+
+
+@mcp.tool()
+def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
+    """Delete a webhook.
+
+    Args:
+        repo_slug: Repository slug
+        webhook_uuid: Webhook UUID (from list_webhooks)
+
+    Returns:
+        Confirmation of deletion
+    """
+    client = get_client()
+    try:
+        client.delete_webhook(repo_slug, webhook_uuid)
+        return {
+            "success": True,
+            "message": f"Webhook '{webhook_uuid}' deleted",
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
 
 
 def main():

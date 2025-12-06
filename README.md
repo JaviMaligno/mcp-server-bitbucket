@@ -4,10 +4,15 @@ MCP server for Bitbucket API operations. Works with Claude Code, Claude Desktop,
 
 ## Features
 
-- **Repositories**: get, create, delete, list
-- **Pull Requests**: create, get, list, merge
+- **Repositories**: get, create, delete, list, update (move to project, rename)
+- **Pull Requests**: create, get, list, merge, approve, decline, request changes, comments, diff
 - **Pipelines**: trigger, get status, list, view logs, stop
 - **Branches**: list, get
+- **Projects**: list, get
+- **Commits**: list, get details, compare/diff between branches
+- **Commit Statuses**: get build statuses, create status (CI/CD integration)
+- **Deployments**: list environments, get environment details, deployment history
+- **Webhooks**: list, create, get, delete
 
 ## Quick Start
 
@@ -25,38 +30,107 @@ claude mcp add bitbucket -s user \
 
 **[Full Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
-## Available Tools
+## Available Tools (38 total)
 
+### Repositories
 | Tool | Description |
 |------|-------------|
 | `list_repositories` | List and search repositories (supports fuzzy name matching) |
 | `get_repository` | Get repository details |
 | `create_repository` | Create a new repository |
 | `delete_repository` | Delete a repository |
+| `update_repository` | Update repo settings (project, visibility, description, name) |
+
+### Branches & Commits
+| Tool | Description |
+|------|-------------|
 | `list_branches` | List branches in a repo |
 | `get_branch` | Get branch details |
+| `list_commits` | List commits (filter by branch or file path) |
+| `get_commit` | Get commit details |
+| `compare_commits` | Compare two commits/branches (diff stats) |
+
+### Commit Statuses (CI/CD)
+| Tool | Description |
+|------|-------------|
+| `get_commit_statuses` | Get build/CI statuses for a commit |
+| `create_commit_status` | Report build status from external CI |
+
+### Pull Requests
+| Tool | Description |
+|------|-------------|
 | `list_pull_requests` | List PRs (open, merged, etc.) |
 | `get_pull_request` | Get PR details |
 | `create_pull_request` | Create a new PR |
 | `merge_pull_request` | Merge a PR |
+| `approve_pr` | Approve a PR |
+| `unapprove_pr` | Remove approval from a PR |
+| `request_changes_pr` | Request changes on a PR |
+| `decline_pr` | Decline (close) a PR |
+| `list_pr_comments` | List comments on a PR |
+| `add_pr_comment` | Add comment to a PR (general or inline) |
+| `get_pr_diff` | Get the diff of a PR |
+
+### Pipelines
+| Tool | Description |
+|------|-------------|
 | `list_pipelines` | List recent pipeline runs |
 | `get_pipeline` | Get pipeline status |
 | `get_pipeline_logs` | View pipeline logs |
 | `trigger_pipeline` | Trigger a pipeline run |
 | `stop_pipeline` | Stop a running pipeline |
 
+### Deployments
+| Tool | Description |
+|------|-------------|
+| `list_environments` | List deployment environments (test, staging, prod) |
+| `get_environment` | Get environment details |
+| `list_deployment_history` | Get deployment history for an environment |
+
+### Webhooks
+| Tool | Description |
+|------|-------------|
+| `list_webhooks` | List configured webhooks |
+| `create_webhook` | Create a new webhook |
+| `get_webhook` | Get webhook details |
+| `delete_webhook` | Delete a webhook |
+
+### Projects
+| Tool | Description |
+|------|-------------|
+| `list_projects` | List projects in workspace |
+| `get_project` | Get project details |
+
 ## Example Usage
 
 Once configured, ask Claude to:
 
+**Repositories & Branches:**
 - "List all repositories in my workspace"
 - "Search for repositories with 'api' in the name"
-- "Find all private repos containing 'test'"
+- "Show me the last 10 commits on the main branch"
+- "Compare develop branch with main"
+
+**Pull Requests & Code Review:**
 - "Show me open pull requests in my-repo"
 - "Create a PR from feature-branch to main"
+- "Approve PR #42"
+- "Add a comment to PR #15 saying 'Looks good!'"
+- "Show me the diff for PR #42"
+- "Merge PR #42 using squash strategy"
+
+**Pipelines & CI/CD:**
 - "Trigger a pipeline on the develop branch"
 - "What's the status of the latest pipeline?"
-- "Merge PR #42 using squash strategy"
+- "Get the build status for commit abc123"
+
+**Deployments:**
+- "List deployment environments for my-repo"
+- "Show deployment history for production"
+
+**Webhooks:**
+- "List webhooks configured for my-repo"
+- "Create a webhook for push events"
 
 ### Repository Search
 
