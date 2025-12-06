@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mcp-server-bitbucket"
-version = "0.1.3"
+version = "0.1.4"
 description = "MCP server for Bitbucket API operations"
 authors = ["Javier Aguilar"]
 readme = "README.md"
@@ -15,8 +15,9 @@ classifiers = [
 ]
 
 [tool.poetry.urls]
-"Homepage" = "https://github.com/simplekyc/bitbucket-mcp"
-"Bug Tracker" = "https://github.com/simplekyc/bitbucket-mcp/issues"
+"Homepage" = "https://bitbucket.org/simplekyc/bitbucket-mcp"
+"Documentation" = "https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md"
+"Bug Tracker" = "https://bitbucket.org/simplekyc/bitbucket-mcp/issues"
 
 [tool.poetry.dependencies]
 python = "^3.11"

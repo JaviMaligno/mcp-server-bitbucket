@@ -23,7 +23,7 @@ claude mcp add bitbucket -s user \
   -- mcp-server-bitbucket
 ```
 
-**[Full Installation Guide](docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
+**[Full Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
 ## Available Tools
 
@@ -116,7 +116,7 @@ Add to `~/.claude.json`:
    - **Pipelines**: Read, Write
 5. Copy the token immediately
 
-See the [full installation guide](docs/INSTALLATION.md) for detailed instructions.
+See the [full installation guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md) for detailed instructions.
 
 ## HTTP Server (Cloud Run)
 
@@ -136,8 +136,8 @@ gcloud run deploy bitbucket-mcp-service \
 ## Links
 
 - [PyPI Package](https://pypi.org/project/mcp-server-bitbucket/)
-- [Installation Guide](docs/INSTALLATION.md)
-- [GitHub Issues](https://github.com/simplekyc/bitbucket-mcp/issues)
+- [Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)
+- [Bitbucket Repository](https://bitbucket.org/simplekyc/bitbucket-mcp)
 
 ## License
 

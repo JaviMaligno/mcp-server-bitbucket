@@ -265,5 +265,5 @@ pipx uninstall mcp-server-bitbucket
 
 ## Support
 
-- GitHub Issues: https://github.com/simplekyc/bitbucket-mcp/issues
+- Bitbucket Issues: https://bitbucket.org/simplekyc/bitbucket-mcp/issues
 - PyPI: https://pypi.org/project/mcp-server-bitbucket/
