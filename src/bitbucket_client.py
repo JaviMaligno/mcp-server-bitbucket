@@ -62,6 +62,19 @@ class BitbucketClient:
         """Build full API URL."""
         return f"{self.BASE_URL}/{path.lstrip('/')}"
 
+    def _repo_path(self, repo_slug: str, *parts: str) -> str:
+        """Build repository endpoint path.
+
+        Args:
+            repo_slug: Repository slug
+            *parts: Additional path segments
+
+        Returns:
+            Full path like "repositories/workspace/repo/pullrequests/123"
+        """
+        base = f"repositories/{self.workspace}/{repo_slug}"
+        return "/".join([base] + list(parts)) if parts else base
+
     def _request(
         self,
         method: str,
@@ -193,7 +206,7 @@ class BitbucketClient:
         Returns:
             Repository info or None if not found
         """
-        return self._request("GET", f"repositories/{self.workspace}/{repo_slug}")
+        return self._request("GET", self._repo_path(repo_slug))
 
     def create_repository(
         self,
@@ -222,11 +235,7 @@ class BitbucketClient:
         if description:
             payload["description"] = description
 
-        result = self._request(
-            "POST",
-            f"repositories/{self.workspace}/{repo_slug}",
-            json=payload,
-        )
+        result = self._request("POST", self._repo_path(repo_slug), json=payload)
         return self._require_result(result, "create repository", repo_slug)
 
     def delete_repository(self, repo_slug: str) -> bool:
@@ -238,7 +247,7 @@ class BitbucketClient:
         Returns:
             True if deleted successfully
         """
-        self._request("DELETE", f"repositories/{self.workspace}/{repo_slug}")
+        self._request("DELETE", self._repo_path(repo_slug))
         return True
 
     def list_repositories(
@@ -324,7 +333,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests",
+            self._repo_path(repo_slug, "pullrequests"),
             json=payload,
         )
         return self._require_result(
@@ -345,7 +354,7 @@ class BitbucketClient:
         """
         return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id)),
         )
 
     def list_pull_requests(
@@ -365,7 +374,7 @@ class BitbucketClient:
             List of PR info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests",
+            self._repo_path(repo_slug, "pullrequests"),
             limit=limit,
             max_page=50,
             state=state,
@@ -400,7 +409,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/merge",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id), "merge"),
             json=payload,
         )
         return self._require_result(result, "merge PR", f"#{pr_id}")
@@ -437,7 +446,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pipelines/",
+            self._repo_path(repo_slug, "pipelines") + "/",
             json=payload,
         )
         return self._require_result(result, "trigger pipeline on", branch)
@@ -457,7 +466,7 @@ class BitbucketClient:
         pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
         return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/pipelines/{pipeline_uuid}",
+            self._repo_path(repo_slug, "pipelines", pipeline_uuid),
         )
 
     def list_pipelines(
@@ -475,7 +484,7 @@ class BitbucketClient:
             List of pipeline info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/pipelines/",
+            self._repo_path(repo_slug, "pipelines") + "/",
             limit=limit,
             sort="-created_on",
         )
@@ -494,7 +503,7 @@ class BitbucketClient:
         """
         pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/",
+            self._repo_path(repo_slug, "pipelines", pipeline_uuid, "steps") + "/",
         )
 
     def get_pipeline_logs(
@@ -515,10 +524,8 @@ class BitbucketClient:
         """
         pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
         step_uuid = ensure_uuid_braces(step_uuid)
-
-        path = (
-            f"repositories/{self.workspace}/{repo_slug}/pipelines/"
-            f"{pipeline_uuid}/steps/{step_uuid}/log"
+        path = self._repo_path(
+            repo_slug, "pipelines", pipeline_uuid, "steps", step_uuid, "log"
         )
         return self._request_text(path) or ""
 
@@ -537,7 +544,7 @@ class BitbucketClient:
         pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
+            self._repo_path(repo_slug, "pipelines", pipeline_uuid, "stopPipeline"),
         )
         # 204 returns {} which is a success
         if result is None:
@@ -613,11 +620,7 @@ class BitbucketClient:
         if not payload:
             raise BitbucketError("No fields to update")
 
-        result = self._request(
-            "PUT",
-            f"repositories/{self.workspace}/{repo_slug}",
-            json=payload,
-        )
+        result = self._request("PUT", self._repo_path(repo_slug), json=payload)
         return self._require_result(result, "update repository", repo_slug)
 
     # ==================== COMMITS ====================
@@ -641,7 +644,7 @@ class BitbucketClient:
             List of commit info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/commits",
+            self._repo_path(repo_slug, "commits"),
             limit=limit,
             include=branch,
             path=path,
@@ -659,10 +662,7 @@ class BitbucketClient:
         Returns:
             Commit info or None if not found
         """
-        return self._request(
-            "GET",
-            f"repositories/{self.workspace}/{repo_slug}/commit/{commit}",
-        )
+        return self._request("GET", self._repo_path(repo_slug, "commit", commit))
 
     def compare_commits(
         self,
@@ -681,11 +681,10 @@ class BitbucketClient:
             Diff info including files changed
         """
         # Use diffstat for summary, diff for full content
-        result = self._request(
+        return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/diffstat/{base}..{head}",
+            self._repo_path(repo_slug, "diffstat", f"{base}..{head}"),
         )
-        return result
 
     # ==================== COMMIT STATUSES ====================
 
@@ -706,7 +705,7 @@ class BitbucketClient:
             List of status info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/commit/{commit}/statuses",
+            self._repo_path(repo_slug, "commit", commit, "statuses"),
             limit=limit,
         )
 
@@ -747,7 +746,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/commit/{commit}/statuses/build",
+            self._repo_path(repo_slug, "commit", commit, "statuses", "build"),
             json=payload,
         )
         return self._require_result(result, "create status for commit", commit)
@@ -771,7 +770,7 @@ class BitbucketClient:
             List of comment info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id), "comments"),
             limit=limit,
         )
 
@@ -802,7 +801,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id), "comments"),
             json=payload,
         )
         return self._require_result(result, "add comment to PR", f"#{pr_id}")
@@ -821,7 +820,7 @@ class BitbucketClient:
         """
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id), "approve"),
         )
         return self._require_result(result, "approve PR", f"#{pr_id}")
 
@@ -839,7 +838,7 @@ class BitbucketClient:
         """
         self._request(
             "DELETE",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id), "approve"),
         )
         return True
 
@@ -857,7 +856,7 @@ class BitbucketClient:
         """
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/request-changes",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id), "request-changes"),
         )
         return self._require_result(result, "request changes on PR", f"#{pr_id}")
 
@@ -875,7 +874,7 @@ class BitbucketClient:
         """
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/decline",
+            self._repo_path(repo_slug, "pullrequests", str(pr_id), "decline"),
         )
         return self._require_result(result, "decline PR", f"#{pr_id}")
 
@@ -891,7 +890,7 @@ class BitbucketClient:
         Returns:
             Diff content as string
         """
-        path = f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/diff"
+        path = self._repo_path(repo_slug, "pullrequests", str(pr_id), "diff")
         return self._request_text(path) or ""
 
     # ==================== DEPLOYMENTS ====================
@@ -911,7 +910,7 @@ class BitbucketClient:
             List of environment info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/environments",
+            self._repo_path(repo_slug, "environments"),
             limit=limit,
         )
 
@@ -930,7 +929,7 @@ class BitbucketClient:
         environment_uuid = ensure_uuid_braces(environment_uuid)
         return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/environments/{environment_uuid}",
+            self._repo_path(repo_slug, "environments", environment_uuid),
         )
 
     def list_deployment_history(
@@ -951,7 +950,7 @@ class BitbucketClient:
         """
         environment_uuid = ensure_uuid_braces(environment_uuid)
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/deployments",
+            self._repo_path(repo_slug, "deployments"),
             limit=limit,
             environment=environment_uuid,
             sort="-state.started_on",
@@ -974,7 +973,7 @@ class BitbucketClient:
             List of webhook info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/hooks",
+            self._repo_path(repo_slug, "hooks"),
             limit=limit,
         )
 
@@ -1009,7 +1008,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/hooks",
+            self._repo_path(repo_slug, "hooks"),
             json=payload,
         )
         return self._require_result(result, "create webhook")
@@ -1029,7 +1028,7 @@ class BitbucketClient:
         webhook_uid = ensure_uuid_braces(webhook_uid)
         return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/hooks/{webhook_uid}",
+            self._repo_path(repo_slug, "hooks", webhook_uid),
         )
 
     def delete_webhook(
@@ -1045,10 +1044,7 @@ class BitbucketClient:
             True if deleted successfully
         """
         webhook_uid = ensure_uuid_braces(webhook_uid)
-        self._request(
-            "DELETE",
-            f"repositories/{self.workspace}/{repo_slug}/hooks/{webhook_uid}",
-        )
+        self._request("DELETE", self._repo_path(repo_slug, "hooks", webhook_uid))
         return True
 
     # ==================== BRANCHES ====================
@@ -1068,7 +1064,7 @@ class BitbucketClient:
             List of branch info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/refs/branches",
+            self._repo_path(repo_slug, "refs", "branches"),
             limit=limit,
         )
 
@@ -1086,7 +1082,7 @@ class BitbucketClient:
         """
         return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/refs/branches/{branch_name}",
+            self._repo_path(repo_slug, "refs", "branches", branch_name),
         )
 
     # ==================== TAGS ====================
@@ -1106,7 +1102,7 @@ class BitbucketClient:
             List of tag info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/refs/tags",
+            self._repo_path(repo_slug, "refs", "tags"),
             limit=limit,
             sort="-target.date",
         )
@@ -1138,7 +1134,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/refs/tags",
+            self._repo_path(repo_slug, "refs", "tags"),
             json=payload,
         )
         return self._require_result(result, "create tag", name)
@@ -1157,7 +1153,7 @@ class BitbucketClient:
         """
         self._request(
             "DELETE",
-            f"repositories/{self.workspace}/{repo_slug}/refs/tags/{tag_name}",
+            self._repo_path(repo_slug, "refs", "tags", tag_name),
         )
         return True
 
@@ -1178,7 +1174,7 @@ class BitbucketClient:
             List of restriction info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/branch-restrictions",
+            self._repo_path(repo_slug, "branch-restrictions"),
             limit=limit,
         )
 
@@ -1234,7 +1230,7 @@ class BitbucketClient:
 
         result = self._request(
             "POST",
-            f"repositories/{self.workspace}/{repo_slug}/branch-restrictions",
+            self._repo_path(repo_slug, "branch-restrictions"),
             json=payload,
         )
         return self._require_result(result, "create branch restriction", kind)
@@ -1253,7 +1249,7 @@ class BitbucketClient:
         """
         self._request(
             "DELETE",
-            f"repositories/{self.workspace}/{repo_slug}/branch-restrictions/{restriction_id}",
+            self._repo_path(repo_slug, "branch-restrictions", str(restriction_id)),
         )
         return True
 
@@ -1275,8 +1271,7 @@ class BitbucketClient:
         Returns:
             File content as string or None if not found
         """
-        api_path = f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}"
-        return self._request_text(api_path)
+        return self._request_text(self._repo_path(repo_slug, "src", ref, path))
 
     def list_directory(
         self,
@@ -1297,7 +1292,7 @@ class BitbucketClient:
             List of file/directory info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}",
+            self._repo_path(repo_slug, "src", ref, path) if path else self._repo_path(repo_slug, "src", ref),
             limit=limit,
         )
 
@@ -1318,7 +1313,7 @@ class BitbucketClient:
             List of user permission info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users",
+            self._repo_path(repo_slug, "permissions-config", "users"),
             limit=limit,
         )
 
@@ -1336,7 +1331,7 @@ class BitbucketClient:
         """
         return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users/{selected_user}",
+            self._repo_path(repo_slug, "permissions-config", "users", selected_user),
         )
 
     def update_user_permission(
@@ -1357,7 +1352,7 @@ class BitbucketClient:
         """
         result = self._request(
             "PUT",
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users/{selected_user}",
+            self._repo_path(repo_slug, "permissions-config", "users", selected_user),
             json={"permission": permission},
         )
         return self._require_result(result, "update permission for user", selected_user)
@@ -1376,7 +1371,7 @@ class BitbucketClient:
         """
         self._request(
             "DELETE",
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users/{selected_user}",
+            self._repo_path(repo_slug, "permissions-config", "users", selected_user),
         )
         return True
 
@@ -1395,7 +1390,7 @@ class BitbucketClient:
             List of group permission info dicts
         """
         return self._paginated_list(
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups",
+            self._repo_path(repo_slug, "permissions-config", "groups"),
             limit=limit,
         )
 
@@ -1413,7 +1408,7 @@ class BitbucketClient:
         """
         return self._request(
             "GET",
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups/{group_slug}",
+            self._repo_path(repo_slug, "permissions-config", "groups", group_slug),
         )
 
     def update_group_permission(
@@ -1434,7 +1429,7 @@ class BitbucketClient:
         """
         result = self._request(
             "PUT",
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups/{group_slug}",
+            self._repo_path(repo_slug, "permissions-config", "groups", group_slug),
             json={"permission": permission},
         )
         return self._require_result(result, "update permission for group", group_slug)
@@ -1453,7 +1448,7 @@ class BitbucketClient:
         """
         self._request(
             "DELETE",
-            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups/{group_slug}",
+            self._repo_path(repo_slug, "permissions-config", "groups", group_slug),
         )
         return True
 

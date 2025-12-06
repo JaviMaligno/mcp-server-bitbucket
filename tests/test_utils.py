@@ -1,7 +1,13 @@
 """Tests for src/utils.py."""
 
 from src.bitbucket_client import BitbucketError
-from src.utils import ensure_uuid_braces, first_line, handle_bitbucket_error, truncate_hash
+from src.utils import (
+    ensure_uuid_braces,
+    first_line,
+    handle_bitbucket_error,
+    not_found_response,
+    truncate_hash,
+)
 
 
 class TestEnsureUuidBraces:
@@ -127,3 +133,27 @@ class TestHandleBitbucketError:
 
         result = func_with_args(1, 2, c=3)
         assert result == {"a": 1, "b": 2, "c": 3}
+
+
+class TestNotFoundResponse:
+    """Tests for not_found_response function."""
+
+    def test_formats_message_with_repository(self):
+        """Should format message for repository."""
+        result = not_found_response("Repository", "my-repo")
+        assert result == {"error": "Repository 'my-repo' not found"}
+
+    def test_formats_message_with_pr(self):
+        """Should format message for PR."""
+        result = not_found_response("PR", "#123")
+        assert result == {"error": "PR '#123' not found"}
+
+    def test_formats_message_with_pipeline(self):
+        """Should format message for pipeline."""
+        result = not_found_response("Pipeline", "{uuid}")
+        assert result == {"error": "Pipeline '{uuid}' not found"}
+
+    def test_formats_message_with_commit(self):
+        """Should format message for commit."""
+        result = not_found_response("Commit", "abc123")
+        assert result == {"error": "Commit 'abc123' not found"}

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an MCP (Model Context Protocol) server for Bitbucket API operations. It provides 38 tools for interacting with Bitbucket repositories, pull requests, pipelines, branches, commits, deployments, and webhooks. The server works with Claude Code, Claude Desktop, and any MCP-compatible client.
+This is an MCP (Model Context Protocol) server for Bitbucket API operations. It provides tools for interacting with Bitbucket repositories, pull requests, pipelines, branches, commits, tags, deployments, webhooks, branch restrictions, source browsing, and permissions. The server works with Claude Code, Claude Desktop, and any MCP-compatible client.
 
 ## Development Commands
 
@@ -109,6 +109,10 @@ git push origin v0.x.x
 ```bash
 # Upgrade to the new version
 pipx upgrade mcp-server-bitbucket
+
+# If upgrade doesn't pick up the new version, reinstall:
+pipx uninstall mcp-server-bitbucket
+pipx install mcp-server-bitbucket
 
 # Restart Claude Code session to pick up changes
 # Then verify the tools are accessible

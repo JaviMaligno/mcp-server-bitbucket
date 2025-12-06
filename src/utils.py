@@ -97,3 +97,20 @@ def handle_bitbucket_error(func: Callable[..., dict[str, Any]]) -> Callable[...,
             return {"success": False, "error": str(e)}
 
     return wrapper
+
+
+def not_found_response(resource: str, identifier: str) -> dict[str, Any]:
+    """Standard response for not-found resources.
+
+    Args:
+        resource: Resource type name (e.g., "Repository", "PR")
+        identifier: Resource identifier (e.g., repo_slug, pr_id)
+
+    Returns:
+        Dict with error message
+
+    Example:
+        >>> not_found_response("Repository", "my-repo")
+        {'error': "Repository 'my-repo' not found"}
+    """
+    return {"error": f"{resource} '{identifier}' not found"}

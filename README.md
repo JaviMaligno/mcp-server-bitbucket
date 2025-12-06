@@ -216,6 +216,17 @@ pipx install mcp-server-bitbucket
 pip install mcp-server-bitbucket
 ```
 
+### Updating
+
+```bash
+# Upgrade to latest version
+pipx upgrade mcp-server-bitbucket
+
+# If upgrade doesn't pick up the new version, reinstall:
+pipx uninstall mcp-server-bitbucket
+pipx install mcp-server-bitbucket
+```
+
 ### From Source
 
 ```bash

@@ -333,3 +333,27 @@ class TestRequireResult:
 
         assert str(exc_info.value) == "Failed to create webhook"
         assert ": " not in str(exc_info.value)  # No colon when no identifier
+
+
+class TestRepoPath:
+    """Tests for _repo_path helper method."""
+
+    def test_base_path(self, client):
+        """Should return base repository path."""
+        path = client._repo_path("my-repo")
+        assert path == "repositories/test-workspace/my-repo"
+
+    def test_with_single_part(self, client):
+        """Should append single path part."""
+        path = client._repo_path("my-repo", "pullrequests")
+        assert path == "repositories/test-workspace/my-repo/pullrequests"
+
+    def test_with_multiple_parts(self, client):
+        """Should append multiple path parts."""
+        path = client._repo_path("my-repo", "pullrequests", "123", "merge")
+        assert path == "repositories/test-workspace/my-repo/pullrequests/123/merge"
+
+    def test_with_pipelines_path(self, client):
+        """Should work with pipeline paths."""
+        path = client._repo_path("my-repo", "pipelines", "{uuid}", "steps", "{step-uuid}", "log")
+        assert path == "repositories/test-workspace/my-repo/pipelines/{uuid}/steps/{step-uuid}/log"

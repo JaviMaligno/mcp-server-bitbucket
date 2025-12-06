@@ -14,8 +14,32 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from src.bitbucket_client import get_client, BitbucketError
-from src.utils import first_line, handle_bitbucket_error, truncate_hash
+from src.bitbucket_client import get_client
+from src.models import (
+    BranchRestriction,
+    BranchSummary,
+    CommentSummary,
+    CommitDetail,
+    CommitStatus,
+    CommitSummary,
+    DeploymentSummary,
+    DirectoryEntry,
+    EnvironmentSummary,
+    GroupPermission,
+    PipelineDetail,
+    PipelineStep,
+    PipelineSummary,
+    ProjectDetail,
+    ProjectSummary,
+    PullRequestDetail,
+    PullRequestSummary,
+    RepositoryDetail,
+    RepositorySummary,
+    TagSummary,
+    UserPermission,
+    WebhookSummary,
+)
+from src.utils import handle_bitbucket_error, not_found_response, truncate_hash
 
 # Initialize FastMCP server
 mcp = FastMCP("bitbucket")
@@ -37,19 +61,9 @@ def get_repository(repo_slug: str) -> dict:
     client = get_client()
     result = client.get_repository(repo_slug)
     if not result:
-        return {"error": f"Repository '{repo_slug}' not found"}
+        return not_found_response("Repository", repo_slug)
 
-    return {
-        "name": result.get("name"),
-        "full_name": result.get("full_name"),
-        "description": result.get("description", ""),
-        "is_private": result.get("is_private"),
-        "created_on": result.get("created_on"),
-        "updated_on": result.get("updated_on"),
-        "mainbranch": result.get("mainbranch", {}).get("name"),
-        "clone_urls": client.extract_clone_urls(result),
-        "project": result.get("project", {}).get("key"),
-    }
+    return RepositoryDetail.from_api(result, client.extract_clone_urls(result)).model_dump()
 
 
 @mcp.tool()
@@ -145,16 +159,7 @@ def list_repositories(
         "count": len(repos),
         "search": search,
         "query": effective_query,
-        "repositories": [
-            {
-                "name": r.get("name"),
-                "full_name": r.get("full_name"),
-                "description": r.get("description", "")[:100] if r.get("description") else "",
-                "is_private": r.get("is_private"),
-                "project": r.get("project", {}).get("key"),
-            }
-            for r in repos
-        ],
+        "repositories": [RepositorySummary.from_api(r).model_dump() for r in repos],
     }
 
 
@@ -218,22 +223,9 @@ def get_pull_request(repo_slug: str, pr_id: int) -> dict:
     client = get_client()
     result = client.get_pull_request(repo_slug, pr_id)
     if not result:
-        return {"error": f"PR #{pr_id} not found in {repo_slug}"}
+        return not_found_response("PR", f"#{pr_id}")
 
-    return {
-        "id": result.get("id"),
-        "title": result.get("title"),
-        "description": result.get("description", ""),
-        "state": result.get("state"),
-        "author": result.get("author", {}).get("display_name"),
-        "source_branch": result.get("source", {}).get("branch", {}).get("name"),
-        "destination_branch": result.get("destination", {}).get("branch", {}).get("name"),
-        "created_on": result.get("created_on"),
-        "updated_on": result.get("updated_on"),
-        "url": client.extract_pr_url(result),
-        "comment_count": result.get("comment_count", 0),
-        "task_count": result.get("task_count", 0),
-    }
+    return PullRequestDetail.from_api(result, client.extract_pr_url(result)).model_dump()
 
 
 @mcp.tool()
@@ -258,15 +250,7 @@ def list_pull_requests(
         "count": len(prs),
         "state_filter": state,
         "pull_requests": [
-            {
-                "id": pr.get("id"),
-                "title": pr.get("title"),
-                "state": pr.get("state"),
-                "author": pr.get("author", {}).get("display_name"),
-                "source_branch": pr.get("source", {}).get("branch", {}).get("name"),
-                "destination_branch": pr.get("destination", {}).get("branch", {}).get("name"),
-                "url": client.extract_pr_url(pr),
-            }
+            PullRequestSummary.from_api(pr, client.extract_pr_url(pr)).model_dump()
             for pr in prs
         ],
     }
@@ -360,19 +344,9 @@ def get_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
     client = get_client()
     result = client.get_pipeline(repo_slug, pipeline_uuid)
     if not result:
-        return {"error": f"Pipeline '{pipeline_uuid}' not found"}
+        return not_found_response("Pipeline", pipeline_uuid)
 
-    state = result.get("state", {})
-    return {
-        "uuid": result.get("uuid"),
-        "build_number": result.get("build_number"),
-        "state": state.get("name"),
-        "result": state.get("result", {}).get("name") if state.get("result") else None,
-        "branch": result.get("target", {}).get("ref_name"),
-        "created_on": result.get("created_on"),
-        "completed_on": result.get("completed_on"),
-        "duration_in_seconds": result.get("duration_in_seconds"),
-    }
+    return PipelineDetail.from_api(result).model_dump()
 
 
 @mcp.tool()
@@ -390,19 +364,7 @@ def list_pipelines(repo_slug: str, limit: int = 10) -> dict:
     pipelines = client.list_pipelines(repo_slug, limit=limit)
     return {
         "count": len(pipelines),
-        "pipelines": [
-            {
-                "uuid": p.get("uuid"),
-                "build_number": p.get("build_number"),
-                "state": p.get("state", {}).get("name"),
-                "result": p.get("state", {}).get("result", {}).get("name")
-                if p.get("state", {}).get("result")
-                else None,
-                "branch": p.get("target", {}).get("ref_name"),
-                "created_on": p.get("created_on"),
-            }
-            for p in pipelines
-        ],
+        "pipelines": [PipelineSummary.from_api(p).model_dump() for p in pipelines],
     }
 
 
@@ -431,17 +393,7 @@ def get_pipeline_logs(
         steps = client.get_pipeline_steps(repo_slug, pipeline_uuid)
         return {
             "message": "Provide step_uuid to get logs for a specific step",
-            "steps": [
-                {
-                    "uuid": s.get("uuid"),
-                    "name": s.get("name"),
-                    "state": s.get("state", {}).get("name"),
-                    "result": s.get("state", {}).get("result", {}).get("name")
-                    if s.get("state", {}).get("result")
-                    else None,
-                }
-                for s in steps
-            ],
+            "steps": [PipelineStep.from_api(s).model_dump() for s in steps],
         }
 
     # Get logs for specific step
@@ -491,16 +443,7 @@ def list_projects(limit: int = 50) -> dict:
     projects = client.list_projects(limit=limit)
     return {
         "count": len(projects),
-        "projects": [
-            {
-                "key": p.get("key"),
-                "name": p.get("name"),
-                "description": p.get("description", "")[:100] if p.get("description") else "",
-                "is_private": p.get("is_private"),
-                "created_on": p.get("created_on"),
-            }
-            for p in projects
-        ],
+        "projects": [ProjectSummary.from_api(p).model_dump() for p in projects],
     }
 
 
@@ -517,16 +460,9 @@ def get_project(project_key: str) -> dict:
     client = get_client()
     result = client.get_project(project_key)
     if not result:
-        return {"error": f"Project '{project_key}' not found"}
+        return not_found_response("Project", project_key)
 
-    return {
-        "key": result.get("key"),
-        "name": result.get("name"),
-        "description": result.get("description", ""),
-        "is_private": result.get("is_private"),
-        "created_on": result.get("created_on"),
-        "updated_on": result.get("updated_on"),
-    }
+    return ProjectDetail.from_api(result).model_dump()
 
 
 # ==================== REPOSITORY UPDATE TOOLS ====================
@@ -593,17 +529,7 @@ def list_branches(repo_slug: str, limit: int = 50) -> dict:
     branches = client.list_branches(repo_slug, limit=limit)
     return {
         "count": len(branches),
-        "branches": [
-            {
-                "name": b.get("name"),
-                "target": {
-                    "hash": truncate_hash(b.get("target", {}).get("hash")),
-                    "message": first_line(b.get("target", {}).get("message")),
-                    "date": b.get("target", {}).get("date"),
-                },
-            }
-            for b in branches
-        ],
+        "branches": [BranchSummary.from_api(b).model_dump() for b in branches],
     }
 
 
@@ -621,7 +547,7 @@ def get_branch(repo_slug: str, branch_name: str) -> dict:
     client = get_client()
     result = client.get_branch(repo_slug, branch_name)
     if not result:
-        return {"error": f"Branch '{branch_name}' not found in {repo_slug}"}
+        return not_found_response("Branch", branch_name)
 
     target = result.get("target", {})
     return {
@@ -629,7 +555,7 @@ def get_branch(repo_slug: str, branch_name: str) -> dict:
         "latest_commit": {
             "hash": target.get("hash"),
             "message": target.get("message", ""),
-            "author": target.get("author", {}).get("raw"),
+            "author": (target.get("author") or {}).get("raw"),
             "date": target.get("date"),
         },
     }
@@ -662,16 +588,7 @@ def list_commits(
         "count": len(commits),
         "branch": branch,
         "path": path,
-        "commits": [
-            {
-                "hash": truncate_hash(c.get("hash")),
-                "full_hash": c.get("hash"),
-                "message": first_line(c.get("message")),
-                "author": c.get("author", {}).get("raw", ""),
-                "date": c.get("date"),
-            }
-            for c in commits
-        ],
+        "commits": [CommitSummary.from_api(c).model_dump() for c in commits],
     }
 
 
@@ -689,18 +606,9 @@ def get_commit(repo_slug: str, commit: str) -> dict:
     client = get_client()
     result = client.get_commit(repo_slug, commit)
     if not result:
-        return {"error": f"Commit '{commit}' not found in {repo_slug}"}
+        return not_found_response("Commit", commit)
 
-    return {
-        "hash": result.get("hash"),
-        "message": result.get("message", ""),
-        "author": {
-            "raw": result.get("author", {}).get("raw"),
-            "user": result.get("author", {}).get("user", {}).get("display_name"),
-        },
-        "date": result.get("date"),
-        "parents": [truncate_hash(p.get("hash")) for p in result.get("parents", [])],
-    }
+    return CommitDetail.from_api(result).model_dump()
 
 
 @mcp.tool()
@@ -761,18 +669,7 @@ def get_commit_statuses(
     return {
         "commit": truncate_hash(commit),
         "count": len(statuses),
-        "statuses": [
-            {
-                "key": s.get("key"),
-                "name": s.get("name"),
-                "state": s.get("state"),
-                "description": s.get("description", ""),
-                "url": s.get("url"),
-                "created_on": s.get("created_on"),
-                "updated_on": s.get("updated_on"),
-            }
-            for s in statuses
-        ],
+        "statuses": [CommitStatus.from_api(s).model_dump() for s in statuses],
     }
 
 
@@ -846,17 +743,7 @@ def list_pr_comments(
     return {
         "pr_id": pr_id,
         "count": len(comments),
-        "comments": [
-            {
-                "id": c.get("id"),
-                "author": c.get("user", {}).get("display_name"),
-                "content": c.get("content", {}).get("raw", ""),
-                "created_on": c.get("created_on"),
-                "updated_on": c.get("updated_on"),
-                "inline": c.get("inline"),  # None for general comments
-            }
-            for c in comments
-        ],
+        "comments": [CommentSummary.from_api(c).model_dump() for c in comments],
     }
 
 
@@ -1035,15 +922,7 @@ def list_environments(repo_slug: str, limit: int = 20) -> dict:
     environments = client.list_environments(repo_slug, limit=limit)
     return {
         "count": len(environments),
-        "environments": [
-            {
-                "uuid": e.get("uuid"),
-                "name": e.get("name"),
-                "environment_type": e.get("environment_type", {}).get("name"),
-                "rank": e.get("rank"),
-            }
-            for e in environments
-        ],
+        "environments": [EnvironmentSummary.from_api(e).model_dump() for e in environments],
     }
 
 
@@ -1061,12 +940,12 @@ def get_environment(repo_slug: str, environment_uuid: str) -> dict:
     client = get_client()
     result = client.get_environment(repo_slug, environment_uuid)
     if not result:
-        return {"error": f"Environment '{environment_uuid}' not found"}
+        return not_found_response("Environment", environment_uuid)
 
     return {
         "uuid": result.get("uuid"),
         "name": result.get("name"),
-        "environment_type": result.get("environment_type", {}).get("name"),
+        "environment_type": (result.get("environment_type") or {}).get("name"),
         "rank": result.get("rank"),
         "restrictions": result.get("restrictions"),
         "lock": result.get("lock"),
@@ -1096,17 +975,7 @@ def list_deployment_history(
     return {
         "environment_uuid": environment_uuid,
         "count": len(deployments),
-        "deployments": [
-            {
-                "uuid": d.get("uuid"),
-                "state": d.get("state", {}).get("name"),
-                "commit": truncate_hash(d.get("commit", {}).get("hash")),
-                "pipeline_uuid": d.get("release", {}).get("pipeline", {}).get("uuid"),
-                "started_on": d.get("state", {}).get("started_on"),
-                "completed_on": d.get("state", {}).get("completed_on"),
-            }
-            for d in deployments
-        ],
+        "deployments": [DeploymentSummary.from_api(d).model_dump() for d in deployments],
     }
 
 
@@ -1128,17 +997,7 @@ def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
     webhooks = client.list_webhooks(repo_slug, limit=limit)
     return {
         "count": len(webhooks),
-        "webhooks": [
-            {
-                "uuid": w.get("uuid"),
-                "url": w.get("url"),
-                "description": w.get("description", ""),
-                "events": w.get("events", []),
-                "active": w.get("active"),
-                "created_at": w.get("created_at"),
-            }
-            for w in webhooks
-        ],
+        "webhooks": [WebhookSummary.from_api(w).model_dump() for w in webhooks],
     }
 
 
@@ -1198,16 +1057,9 @@ def get_webhook(repo_slug: str, webhook_uuid: str) -> dict:
     client = get_client()
     result = client.get_webhook(repo_slug, webhook_uuid)
     if not result:
-        return {"error": f"Webhook '{webhook_uuid}' not found"}
+        return not_found_response("Webhook", webhook_uuid)
 
-    return {
-        "uuid": result.get("uuid"),
-        "url": result.get("url"),
-        "description": result.get("description", ""),
-        "events": result.get("events", []),
-        "active": result.get("active"),
-        "created_at": result.get("created_at"),
-    }
+    return WebhookSummary.from_api(result).model_dump()
 
 
 @mcp.tool()
@@ -1248,16 +1100,7 @@ def list_tags(repo_slug: str, limit: int = 50) -> dict:
     tags = client.list_tags(repo_slug, limit=limit)
     return {
         "count": len(tags),
-        "tags": [
-            {
-                "name": t.get("name"),
-                "target": truncate_hash((t.get("target") or {}).get("hash")),
-                "message": t.get("message", ""),
-                "tagger": (t.get("tagger") or {}).get("raw", ""),
-                "date": t.get("date"),
-            }
-            for t in tags
-        ],
+        "tags": [TagSummary.from_api(t).model_dump() for t in tags],
     }
 
 
@@ -1333,19 +1176,7 @@ def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
     restrictions = client.list_branch_restrictions(repo_slug, limit=limit)
     return {
         "count": len(restrictions),
-        "restrictions": [
-            {
-                "id": r.get("id"),
-                "kind": r.get("kind"),
-                "pattern": r.get("pattern", ""),
-                "branch_match_kind": r.get("branch_match_kind"),
-                "branch_type": r.get("branch_type"),
-                "value": r.get("value"),
-                "users": [u.get("display_name") for u in r.get("users", [])],
-                "groups": [g.get("name") for g in r.get("groups", [])],
-            }
-            for r in restrictions
-        ],
+        "restrictions": [BranchRestriction.from_api(r).model_dump() for r in restrictions],
     }
 
 
@@ -1480,14 +1311,7 @@ def list_directory(
         "path": path or "/",
         "ref": ref,
         "count": len(entries),
-        "entries": [
-            {
-                "path": e.get("path"),
-                "type": e.get("type"),  # "commit_file" or "commit_directory"
-                "size": e.get("size"),
-            }
-            for e in entries
-        ],
+        "entries": [DirectoryEntry.from_api(e).model_dump() for e in entries],
     }
 
 
@@ -1509,14 +1333,7 @@ def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
     permissions = client.list_user_permissions(repo_slug, limit=limit)
     return {
         "count": len(permissions),
-        "users": [
-            {
-                "user": p.get("user", {}).get("display_name"),
-                "account_id": p.get("user", {}).get("account_id"),
-                "permission": p.get("permission"),
-            }
-            for p in permissions
-        ],
+        "users": [UserPermission.from_api(p).model_dump() for p in permissions],
     }
 
 
@@ -1534,13 +1351,9 @@ def get_user_permission(repo_slug: str, selected_user: str) -> dict:
     client = get_client()
     result = client.get_user_permission(repo_slug, selected_user)
     if not result:
-        return {"error": f"User '{selected_user}' not found or has no explicit permission"}
+        return not_found_response("User permission", selected_user)
 
-    return {
-        "user": result.get("user", {}).get("display_name"),
-        "account_id": result.get("user", {}).get("account_id"),
-        "permission": result.get("permission"),
-    }
+    return UserPermission.from_api(result).model_dump()
 
 
 @mcp.tool()
@@ -1607,14 +1420,7 @@ def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
     permissions = client.list_group_permissions(repo_slug, limit=limit)
     return {
         "count": len(permissions),
-        "groups": [
-            {
-                "group": p.get("group", {}).get("name"),
-                "slug": p.get("group", {}).get("slug"),
-                "permission": p.get("permission"),
-            }
-            for p in permissions
-        ],
+        "groups": [GroupPermission.from_api(p).model_dump() for p in permissions],
     }
 
 
@@ -1632,13 +1438,9 @@ def get_group_permission(repo_slug: str, group_slug: str) -> dict:
     client = get_client()
     result = client.get_group_permission(repo_slug, group_slug)
     if not result:
-        return {"error": f"Group '{group_slug}' not found or has no explicit permission"}
+        return not_found_response("Group permission", group_slug)
 
-    return {
-        "group": result.get("group", {}).get("name"),
-        "slug": result.get("group", {}).get("slug"),
-        "permission": result.get("permission"),
-    }
+    return GroupPermission.from_api(result).model_dump()
 
 
 @mcp.tool()
