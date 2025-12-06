@@ -15,6 +15,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 from src.bitbucket_client import get_client, BitbucketError
+from src.utils import first_line, handle_bitbucket_error, truncate_hash
 
 # Initialize FastMCP server
 mcp = FastMCP("bitbucket")
@@ -52,6 +53,7 @@ def get_repository(repo_slug: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def create_repository(
     repo_slug: str,
     project_key: Optional[str] = None,
@@ -70,25 +72,23 @@ def create_repository(
         Created repository info with clone URLs
     """
     client = get_client()
-    try:
-        result = client.create_repository(
-            repo_slug=repo_slug,
-            project_key=project_key,
-            is_private=is_private,
-            description=description,
-        )
-        return {
-            "success": True,
-            "name": result.get("name"),
-            "full_name": result.get("full_name"),
-            "clone_urls": client.extract_clone_urls(result),
-            "html_url": result.get("links", {}).get("html", {}).get("href"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.create_repository(
+        repo_slug=repo_slug,
+        project_key=project_key,
+        is_private=is_private,
+        description=description,
+    )
+    return {
+        "success": True,
+        "name": result.get("name"),
+        "full_name": result.get("full_name"),
+        "clone_urls": client.extract_clone_urls(result),
+        "html_url": result.get("links", {}).get("html", {}).get("href"),
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def delete_repository(repo_slug: str) -> dict:
     """Delete a Bitbucket repository.
 
@@ -101,11 +101,8 @@ def delete_repository(repo_slug: str) -> dict:
         Success status
     """
     client = get_client()
-    try:
-        client.delete_repository(repo_slug)
-        return {"success": True, "message": f"Repository '{repo_slug}' deleted"}
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    client.delete_repository(repo_slug)
+    return {"success": True, "message": f"Repository '{repo_slug}' deleted"}
 
 
 @mcp.tool()
@@ -165,6 +162,7 @@ def list_repositories(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def create_pull_request(
     repo_slug: str,
     title: str,
@@ -187,26 +185,23 @@ def create_pull_request(
         Created PR info with id, url, and state
     """
     client = get_client()
-    try:
-        result = client.create_pull_request(
-            repo_slug=repo_slug,
-            title=title,
-            source_branch=source_branch,
-            destination_branch=destination_branch,
-            description=description,
-            close_source_branch=close_source_branch,
-        )
-        return {
-            "success": True,
-            "id": result.get("id"),
-            "title": result.get("title"),
-            "state": result.get("state"),
-            "url": client.extract_pr_url(result),
-            "source_branch": source_branch,
-            "destination_branch": destination_branch,
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.create_pull_request(
+        repo_slug=repo_slug,
+        title=title,
+        source_branch=source_branch,
+        destination_branch=destination_branch,
+        description=description,
+        close_source_branch=close_source_branch,
+    )
+    return {
+        "success": True,
+        "id": result.get("id"),
+        "title": result.get("title"),
+        "state": result.get("state"),
+        "url": client.extract_pr_url(result),
+        "source_branch": source_branch,
+        "destination_branch": destination_branch,
+    }
 
 
 @mcp.tool()
@@ -278,6 +273,7 @@ def list_pull_requests(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def merge_pull_request(
     repo_slug: str,
     pr_id: int,
@@ -298,29 +294,27 @@ def merge_pull_request(
         Merged PR info
     """
     client = get_client()
-    try:
-        result = client.merge_pull_request(
-            repo_slug=repo_slug,
-            pr_id=pr_id,
-            merge_strategy=merge_strategy,
-            close_source_branch=close_source_branch,
-            message=message,
-        )
-        return {
-            "success": True,
-            "id": result.get("id"),
-            "state": result.get("state"),
-            "merge_commit": result.get("merge_commit", {}).get("hash"),
-            "url": client.extract_pr_url(result),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.merge_pull_request(
+        repo_slug=repo_slug,
+        pr_id=pr_id,
+        merge_strategy=merge_strategy,
+        close_source_branch=close_source_branch,
+        message=message,
+    )
+    return {
+        "success": True,
+        "id": result.get("id"),
+        "state": result.get("state"),
+        "merge_commit": result.get("merge_commit", {}).get("hash"),
+        "url": client.extract_pr_url(result),
+    }
 
 
 # ==================== PIPELINE TOOLS ====================
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def trigger_pipeline(
     repo_slug: str,
     branch: str = "main",
@@ -337,22 +331,19 @@ def trigger_pipeline(
         Pipeline run info with uuid and state
     """
     client = get_client()
-    try:
-        result = client.trigger_pipeline(
-            repo_slug=repo_slug,
-            branch=branch,
-            variables=variables,
-        )
-        return {
-            "success": True,
-            "uuid": result.get("uuid"),
-            "build_number": result.get("build_number"),
-            "state": result.get("state", {}).get("name"),
-            "branch": branch,
-            "created_on": result.get("created_on"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.trigger_pipeline(
+        repo_slug=repo_slug,
+        branch=branch,
+        variables=variables,
+    )
+    return {
+        "success": True,
+        "uuid": result.get("uuid"),
+        "build_number": result.get("build_number"),
+        "state": result.get("state", {}).get("name"),
+        "branch": branch,
+        "created_on": result.get("created_on"),
+    }
 
 
 @mcp.tool()
@@ -462,6 +453,7 @@ def get_pipeline_logs(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
     """Stop a running pipeline.
 
@@ -473,16 +465,13 @@ def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
         Updated pipeline status
     """
     client = get_client()
-    try:
-        result = client.stop_pipeline(repo_slug, pipeline_uuid)
-        return {
-            "success": True,
-            "uuid": result.get("uuid"),
-            "state": result.get("state", {}).get("name"),
-            "message": "Pipeline stop requested",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.stop_pipeline(repo_slug, pipeline_uuid)
+    return {
+        "success": True,
+        "uuid": result.get("uuid"),
+        "state": result.get("state", {}).get("name"),
+        "message": "Pipeline stop requested",
+    }
 
 
 # ==================== PROJECT TOOLS ====================
@@ -544,6 +533,7 @@ def get_project(project_key: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def update_repository(
     repo_slug: str,
     project_key: Optional[str] = None,
@@ -567,25 +557,22 @@ def update_repository(
         Updated repository info
     """
     client = get_client()
-    try:
-        result = client.update_repository(
-            repo_slug=repo_slug,
-            project_key=project_key,
-            is_private=is_private,
-            description=description,
-            name=name,
-        )
-        return {
-            "success": True,
-            "name": result.get("name"),
-            "full_name": result.get("full_name"),
-            "project": result.get("project", {}).get("key"),
-            "is_private": result.get("is_private"),
-            "description": result.get("description", ""),
-            "html_url": result.get("links", {}).get("html", {}).get("href"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.update_repository(
+        repo_slug=repo_slug,
+        project_key=project_key,
+        is_private=is_private,
+        description=description,
+        name=name,
+    )
+    return {
+        "success": True,
+        "name": result.get("name"),
+        "full_name": result.get("full_name"),
+        "project": result.get("project", {}).get("key"),
+        "is_private": result.get("is_private"),
+        "description": result.get("description", ""),
+        "html_url": result.get("links", {}).get("html", {}).get("href"),
+    }
 
 
 # ==================== BRANCH TOOLS ====================
@@ -610,8 +597,8 @@ def list_branches(repo_slug: str, limit: int = 50) -> dict:
             {
                 "name": b.get("name"),
                 "target": {
-                    "hash": b.get("target", {}).get("hash", "")[:12],
-                    "message": b.get("target", {}).get("message", "").split("\n")[0],
+                    "hash": truncate_hash(b.get("target", {}).get("hash")),
+                    "message": first_line(b.get("target", {}).get("message")),
                     "date": b.get("target", {}).get("date"),
                 },
             }
@@ -677,9 +664,9 @@ def list_commits(
         "path": path,
         "commits": [
             {
-                "hash": c.get("hash", "")[:12],
+                "hash": truncate_hash(c.get("hash")),
                 "full_hash": c.get("hash"),
-                "message": c.get("message", "").split("\n")[0],
+                "message": first_line(c.get("message")),
                 "author": c.get("author", {}).get("raw", ""),
                 "date": c.get("date"),
             }
@@ -712,7 +699,7 @@ def get_commit(repo_slug: str, commit: str) -> dict:
             "user": result.get("author", {}).get("user", {}).get("display_name"),
         },
         "date": result.get("date"),
-        "parents": [p.get("hash", "")[:12] for p in result.get("parents", [])],
+        "parents": [truncate_hash(p.get("hash")) for p in result.get("parents", [])],
     }
 
 
@@ -772,7 +759,7 @@ def get_commit_statuses(
     client = get_client()
     statuses = client.get_commit_statuses(repo_slug, commit, limit=limit)
     return {
-        "commit": commit[:12],
+        "commit": truncate_hash(commit),
         "count": len(statuses),
         "statuses": [
             {
@@ -790,6 +777,7 @@ def get_commit_statuses(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def create_commit_status(
     repo_slug: str,
     commit: str,
@@ -816,25 +804,22 @@ def create_commit_status(
         Created status info
     """
     client = get_client()
-    try:
-        result = client.create_commit_status(
-            repo_slug=repo_slug,
-            commit=commit,
-            state=state,
-            key=key,
-            url=url,
-            name=name,
-            description=description,
-        )
-        return {
-            "success": True,
-            "key": result.get("key"),
-            "state": result.get("state"),
-            "name": result.get("name"),
-            "url": result.get("url"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.create_commit_status(
+        repo_slug=repo_slug,
+        commit=commit,
+        state=state,
+        key=key,
+        url=url,
+        name=name,
+        description=description,
+    )
+    return {
+        "success": True,
+        "key": result.get("key"),
+        "state": result.get("state"),
+        "name": result.get("name"),
+        "url": result.get("url"),
+    }
 
 
 # ==================== PR COMMENT & REVIEW TOOLS ====================
@@ -876,6 +861,7 @@ def list_pr_comments(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def add_pr_comment(
     repo_slug: str,
     pr_id: int,
@@ -898,28 +884,26 @@ def add_pr_comment(
         Created comment info
     """
     client = get_client()
-    try:
-        inline = None
-        if file_path and line:
-            inline = {"path": file_path, "to": line}
+    inline = None
+    if file_path and line:
+        inline = {"path": file_path, "to": line}
 
-        result = client.add_pr_comment(
-            repo_slug=repo_slug,
-            pr_id=pr_id,
-            content=content,
-            inline=inline,
-        )
-        return {
-            "success": True,
-            "id": result.get("id"),
-            "content": result.get("content", {}).get("raw", ""),
-            "inline": inline,
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.add_pr_comment(
+        repo_slug=repo_slug,
+        pr_id=pr_id,
+        content=content,
+        inline=inline,
+    )
+    return {
+        "success": True,
+        "id": result.get("id"),
+        "content": result.get("content", {}).get("raw", ""),
+        "inline": inline,
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def approve_pr(repo_slug: str, pr_id: int) -> dict:
     """Approve a pull request.
 
@@ -931,19 +915,17 @@ def approve_pr(repo_slug: str, pr_id: int) -> dict:
         Approval confirmation
     """
     client = get_client()
-    try:
-        result = client.approve_pr(repo_slug, pr_id)
-        return {
-            "success": True,
-            "pr_id": pr_id,
-            "approved_by": result.get("user", {}).get("display_name"),
-            "approved_on": result.get("date"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.approve_pr(repo_slug, pr_id)
+    return {
+        "success": True,
+        "pr_id": pr_id,
+        "approved_by": result.get("user", {}).get("display_name"),
+        "approved_on": result.get("date"),
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def unapprove_pr(repo_slug: str, pr_id: int) -> dict:
     """Remove your approval from a pull request.
 
@@ -955,18 +937,16 @@ def unapprove_pr(repo_slug: str, pr_id: int) -> dict:
         Confirmation of approval removal
     """
     client = get_client()
-    try:
-        client.unapprove_pr(repo_slug, pr_id)
-        return {
-            "success": True,
-            "pr_id": pr_id,
-            "message": "Approval removed",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    client.unapprove_pr(repo_slug, pr_id)
+    return {
+        "success": True,
+        "pr_id": pr_id,
+        "message": "Approval removed",
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def request_changes_pr(repo_slug: str, pr_id: int) -> dict:
     """Request changes on a pull request.
 
@@ -978,19 +958,17 @@ def request_changes_pr(repo_slug: str, pr_id: int) -> dict:
         Confirmation of change request
     """
     client = get_client()
-    try:
-        result = client.request_changes_pr(repo_slug, pr_id)
-        return {
-            "success": True,
-            "pr_id": pr_id,
-            "requested_by": result.get("user", {}).get("display_name"),
-            "requested_on": result.get("date"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.request_changes_pr(repo_slug, pr_id)
+    return {
+        "success": True,
+        "pr_id": pr_id,
+        "requested_by": result.get("user", {}).get("display_name"),
+        "requested_on": result.get("date"),
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def decline_pr(repo_slug: str, pr_id: int) -> dict:
     """Decline (close without merging) a pull request.
 
@@ -1002,19 +980,17 @@ def decline_pr(repo_slug: str, pr_id: int) -> dict:
         Declined PR info
     """
     client = get_client()
-    try:
-        result = client.decline_pr(repo_slug, pr_id)
-        return {
-            "success": True,
-            "pr_id": pr_id,
-            "state": result.get("state"),
-            "message": "Pull request declined",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.decline_pr(repo_slug, pr_id)
+    return {
+        "success": True,
+        "pr_id": pr_id,
+        "state": result.get("state"),
+        "message": "Pull request declined",
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def get_pr_diff(repo_slug: str, pr_id: int) -> dict:
     """Get the diff of a pull request.
 
@@ -1026,22 +1002,19 @@ def get_pr_diff(repo_slug: str, pr_id: int) -> dict:
         Diff content as text
     """
     client = get_client()
-    try:
-        diff = client.get_pr_diff(repo_slug, pr_id)
-        if not diff:
-            return {"error": f"PR #{pr_id} not found or has no diff"}
+    diff = client.get_pr_diff(repo_slug, pr_id)
+    if not diff:
+        return {"error": f"PR #{pr_id} not found or has no diff"}
 
-        # Truncate if too long
-        max_length = 50000
-        truncated = len(diff) > max_length
-        return {
-            "pr_id": pr_id,
-            "diff": diff[:max_length] if truncated else diff,
-            "truncated": truncated,
-            "total_length": len(diff),
-        }
-    except BitbucketError as e:
-        return {"error": str(e)}
+    # Truncate if too long
+    max_length = 50000
+    truncated = len(diff) > max_length
+    return {
+        "pr_id": pr_id,
+        "diff": diff[:max_length] if truncated else diff,
+        "truncated": truncated,
+        "total_length": len(diff),
+    }
 
 
 # ==================== DEPLOYMENT TOOLS ====================
@@ -1127,7 +1100,7 @@ def list_deployment_history(
             {
                 "uuid": d.get("uuid"),
                 "state": d.get("state", {}).get("name"),
-                "commit": d.get("commit", {}).get("hash", "")[:12],
+                "commit": truncate_hash(d.get("commit", {}).get("hash")),
                 "pipeline_uuid": d.get("release", {}).get("pipeline", {}).get("uuid"),
                 "started_on": d.get("state", {}).get("started_on"),
                 "completed_on": d.get("state", {}).get("completed_on"),
@@ -1170,6 +1143,7 @@ def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def create_webhook(
     repo_slug: str,
     url: str,
@@ -1194,23 +1168,20 @@ def create_webhook(
         Created webhook info with UUID
     """
     client = get_client()
-    try:
-        result = client.create_webhook(
-            repo_slug=repo_slug,
-            url=url,
-            events=events,
-            description=description,
-            active=active,
-        )
-        return {
-            "success": True,
-            "uuid": result.get("uuid"),
-            "url": result.get("url"),
-            "events": result.get("events"),
-            "active": result.get("active"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.create_webhook(
+        repo_slug=repo_slug,
+        url=url,
+        events=events,
+        description=description,
+        active=active,
+    )
+    return {
+        "success": True,
+        "uuid": result.get("uuid"),
+        "url": result.get("url"),
+        "events": result.get("events"),
+        "active": result.get("active"),
+    }
 
 
 @mcp.tool()
@@ -1240,6 +1211,7 @@ def get_webhook(repo_slug: str, webhook_uuid: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
     """Delete a webhook.
 
@@ -1251,14 +1223,11 @@ def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
         Confirmation of deletion
     """
     client = get_client()
-    try:
-        client.delete_webhook(repo_slug, webhook_uuid)
-        return {
-            "success": True,
-            "message": f"Webhook '{webhook_uuid}' deleted",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    client.delete_webhook(repo_slug, webhook_uuid)
+    return {
+        "success": True,
+        "message": f"Webhook '{webhook_uuid}' deleted",
+    }
 
 
 # ==================== TAGS ====================
@@ -1282,7 +1251,7 @@ def list_tags(repo_slug: str, limit: int = 50) -> dict:
         "tags": [
             {
                 "name": t.get("name"),
-                "target": (t.get("target") or {}).get("hash", "")[:12],
+                "target": truncate_hash((t.get("target") or {}).get("hash")),
                 "message": t.get("message", ""),
                 "tagger": (t.get("tagger") or {}).get("raw", ""),
                 "date": t.get("date"),
@@ -1293,6 +1262,7 @@ def list_tags(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def create_tag(
     repo_slug: str,
     name: str,
@@ -1311,24 +1281,22 @@ def create_tag(
         Created tag info
     """
     client = get_client()
-    try:
-        result = client.create_tag(
-            repo_slug,
-            name=name,
-            target=target,
-            message=message if message else None,
-        )
-        return {
-            "success": True,
-            "name": result.get("name"),
-            "target": result.get("target", {}).get("hash", "")[:12],
-            "message": result.get("message", ""),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.create_tag(
+        repo_slug,
+        name=name,
+        target=target,
+        message=message if message else None,
+    )
+    return {
+        "success": True,
+        "name": result.get("name"),
+        "target": truncate_hash(result.get("target", {}).get("hash")),
+        "message": result.get("message", ""),
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def delete_tag(repo_slug: str, tag_name: str) -> dict:
     """Delete a tag from a repository.
 
@@ -1340,14 +1308,11 @@ def delete_tag(repo_slug: str, tag_name: str) -> dict:
         Confirmation of deletion
     """
     client = get_client()
-    try:
-        client.delete_tag(repo_slug, tag_name)
-        return {
-            "success": True,
-            "message": f"Tag '{tag_name}' deleted",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    client.delete_tag(repo_slug, tag_name)
+    return {
+        "success": True,
+        "message": f"Tag '{tag_name}' deleted",
+    }
 
 
 # ==================== BRANCH RESTRICTIONS ====================
@@ -1385,6 +1350,7 @@ def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def create_branch_restriction(
     repo_slug: str,
     kind: str,
@@ -1416,27 +1382,25 @@ def create_branch_restriction(
         Created restriction info with ID
     """
     client = get_client()
-    try:
-        result = client.create_branch_restriction(
-            repo_slug,
-            kind=kind,
-            pattern=pattern,
-            branch_match_kind=branch_match_kind,
-            branch_type=branch_type if branch_type else None,
-            value=value if value else None,
-        )
-        return {
-            "success": True,
-            "id": result.get("id"),
-            "kind": result.get("kind"),
-            "pattern": result.get("pattern", ""),
-            "branch_match_kind": result.get("branch_match_kind"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.create_branch_restriction(
+        repo_slug,
+        kind=kind,
+        pattern=pattern,
+        branch_match_kind=branch_match_kind,
+        branch_type=branch_type if branch_type else None,
+        value=value if value else None,
+    )
+    return {
+        "success": True,
+        "id": result.get("id"),
+        "kind": result.get("kind"),
+        "pattern": result.get("pattern", ""),
+        "branch_match_kind": result.get("branch_match_kind"),
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def delete_branch_restriction(repo_slug: str, restriction_id: int) -> dict:
     """Delete a branch restriction.
 
@@ -1448,14 +1412,11 @@ def delete_branch_restriction(repo_slug: str, restriction_id: int) -> dict:
         Confirmation of deletion
     """
     client = get_client()
-    try:
-        client.delete_branch_restriction(repo_slug, restriction_id)
-        return {
-            "success": True,
-            "message": f"Branch restriction {restriction_id} deleted",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    client.delete_branch_restriction(repo_slug, restriction_id)
+    return {
+        "success": True,
+        "message": f"Branch restriction {restriction_id} deleted",
+    }
 
 
 # ==================== SOURCE (FILE BROWSING) ====================
@@ -1583,6 +1544,7 @@ def get_user_permission(repo_slug: str, selected_user: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def update_user_permission(
     repo_slug: str,
     selected_user: str,
@@ -1599,18 +1561,16 @@ def update_user_permission(
         Updated permission info
     """
     client = get_client()
-    try:
-        result = client.update_user_permission(repo_slug, selected_user, permission)
-        return {
-            "success": True,
-            "user": result.get("user", {}).get("display_name"),
-            "permission": result.get("permission"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.update_user_permission(repo_slug, selected_user, permission)
+    return {
+        "success": True,
+        "user": result.get("user", {}).get("display_name"),
+        "permission": result.get("permission"),
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def delete_user_permission(repo_slug: str, selected_user: str) -> dict:
     """Remove a user's explicit permission from a repository.
 
@@ -1622,14 +1582,11 @@ def delete_user_permission(repo_slug: str, selected_user: str) -> dict:
         Confirmation of removal
     """
     client = get_client()
-    try:
-        client.delete_user_permission(repo_slug, selected_user)
-        return {
-            "success": True,
-            "message": f"User '{selected_user}' permission removed",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    client.delete_user_permission(repo_slug, selected_user)
+    return {
+        "success": True,
+        "message": f"User '{selected_user}' permission removed",
+    }
 
 
 # ==================== REPOSITORY PERMISSIONS - GROUPS ====================
@@ -1685,6 +1642,7 @@ def get_group_permission(repo_slug: str, group_slug: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def update_group_permission(
     repo_slug: str,
     group_slug: str,
@@ -1701,18 +1659,16 @@ def update_group_permission(
         Updated permission info
     """
     client = get_client()
-    try:
-        result = client.update_group_permission(repo_slug, group_slug, permission)
-        return {
-            "success": True,
-            "group": result.get("group", {}).get("name"),
-            "permission": result.get("permission"),
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    result = client.update_group_permission(repo_slug, group_slug, permission)
+    return {
+        "success": True,
+        "group": result.get("group", {}).get("name"),
+        "permission": result.get("permission"),
+    }
 
 
 @mcp.tool()
+@handle_bitbucket_error
 def delete_group_permission(repo_slug: str, group_slug: str) -> dict:
     """Remove a group's explicit permission from a repository.
 
@@ -1724,14 +1680,11 @@ def delete_group_permission(repo_slug: str, group_slug: str) -> dict:
         Confirmation of removal
     """
     client = get_client()
-    try:
-        client.delete_group_permission(repo_slug, group_slug)
-        return {
-            "success": True,
-            "message": f"Group '{group_slug}' permission removed",
-        }
-    except BitbucketError as e:
-        return {"success": False, "error": str(e)}
+    client.delete_group_permission(repo_slug, group_slug)
+    return {
+        "success": True,
+        "message": f"Group '{group_slug}' permission removed",
+    }
 
 
 def main():

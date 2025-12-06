@@ -17,6 +17,8 @@ from typing import Any, Optional
 import httpx
 from dotenv import load_dotenv
 
+from src.utils import ensure_uuid_braces
+
 
 class BitbucketError(Exception):
     """Exception for Bitbucket API errors."""
@@ -102,6 +104,84 @@ class BitbucketClient:
                 f"Method: {method} {path}"
             )
 
+    def _paginated_list(
+        self,
+        endpoint: str,
+        limit: int = 50,
+        max_page: int = 100,
+        **extra_params,
+    ) -> list[dict[str, Any]]:
+        """Helper for paginated list endpoints.
+
+        Args:
+            endpoint: API endpoint path
+            limit: Maximum results to return
+            max_page: Maximum page size (API limit)
+            **extra_params: Additional query parameters
+
+        Returns:
+            List of result dicts from 'values' key
+        """
+        params = {"pagelen": min(limit, max_page)}
+        params.update({k: v for k, v in extra_params.items() if v is not None})
+        result = self._request("GET", endpoint, params=params)
+        return result.get("values", []) if result else []
+
+    def _request_text(
+        self,
+        path: str,
+        timeout: int = 30,
+    ) -> Optional[str]:
+        """Make an API request that returns plain text.
+
+        Used for endpoints that return text content like logs, diffs, and files.
+        Follows redirects automatically.
+
+        Args:
+            path: API path (without base URL)
+            timeout: Request timeout in seconds
+
+        Returns:
+            Response text or None for 404
+        """
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            r = client.get(
+                self._url(path),
+                auth=self._get_auth(),
+            )
+            if r.status_code == 200:
+                return r.text
+            elif r.status_code == 404:
+                return None
+            else:
+                raise BitbucketError(f"Request failed: {r.status_code}")
+
+    def _require_result(
+        self,
+        result: Optional[dict[str, Any]],
+        action: str,
+        identifier: str = "",
+    ) -> dict[str, Any]:
+        """Validate that a result is not None/empty.
+
+        Args:
+            result: API response to validate
+            action: Action description for error message (e.g., "create repository")
+            identifier: Optional identifier for error message (e.g., repo name)
+
+        Returns:
+            The result if valid
+
+        Raises:
+            BitbucketError: If result is None or empty
+        """
+        if not result:
+            msg = f"Failed to {action}"
+            if identifier:
+                msg += f": {identifier}"
+            raise BitbucketError(msg)
+        return result
+
     # ==================== REPOSITORIES ====================
 
     def get_repository(self, repo_slug: str) -> Optional[dict[str, Any]]:
@@ -147,9 +227,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to create repository: {repo_slug}")
-        return result
+        return self._require_result(result, "create repository", repo_slug)
 
     def delete_repository(self, repo_slug: str) -> bool:
         """Delete a repository.
@@ -249,11 +327,9 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/pullrequests",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(
-                f"Failed to create PR: {source_branch} -> {destination_branch}"
-            )
-        return result
+        return self._require_result(
+            result, "create PR", f"{source_branch} -> {destination_branch}"
+        )
 
     def get_pull_request(
         self, repo_slug: str, pr_id: int
@@ -288,12 +364,12 @@ class BitbucketClient:
         Returns:
             List of PR info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/pullrequests",
-            params={"state": state, "pagelen": min(limit, 50)},
+            limit=limit,
+            max_page=50,
+            state=state,
         )
-        return result.get("values", []) if result else []
 
     def merge_pull_request(
         self,
@@ -327,9 +403,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/merge",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to merge PR #{pr_id}")
-        return result
+        return self._require_result(result, "merge PR", f"#{pr_id}")
 
     # ==================== PIPELINES ====================
 
@@ -366,9 +440,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/pipelines/",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to trigger pipeline on {branch}")
-        return result
+        return self._require_result(result, "trigger pipeline on", branch)
 
     def get_pipeline(
         self, repo_slug: str, pipeline_uuid: str
@@ -382,10 +454,7 @@ class BitbucketClient:
         Returns:
             Pipeline info or None if not found
         """
-        # Ensure UUID has braces
-        if not pipeline_uuid.startswith("{"):
-            pipeline_uuid = f"{{{pipeline_uuid}}}"
-
+        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
         return self._request(
             "GET",
             f"repositories/{self.workspace}/{repo_slug}/pipelines/{pipeline_uuid}",
@@ -405,12 +474,11 @@ class BitbucketClient:
         Returns:
             List of pipeline info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/pipelines/",
-            params={"pagelen": min(limit, 100), "sort": "-created_on"},
+            limit=limit,
+            sort="-created_on",
         )
-        return result.get("values", []) if result else []
 
     def get_pipeline_steps(
         self, repo_slug: str, pipeline_uuid: str
@@ -424,14 +492,10 @@ class BitbucketClient:
         Returns:
             List of step info dicts
         """
-        if not pipeline_uuid.startswith("{"):
-            pipeline_uuid = f"{{{pipeline_uuid}}}"
-
-        result = self._request(
-            "GET",
+        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/pipelines/{pipeline_uuid}/steps/",
         )
-        return result.get("values", []) if result else []
 
     def get_pipeline_logs(
         self,
@@ -449,26 +513,14 @@ class BitbucketClient:
         Returns:
             Log content as string
         """
-        if not pipeline_uuid.startswith("{"):
-            pipeline_uuid = f"{{{pipeline_uuid}}}"
-        if not step_uuid.startswith("{"):
-            step_uuid = f"{{{step_uuid}}}"
+        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
+        step_uuid = ensure_uuid_braces(step_uuid)
 
-        # Logs endpoint returns plain text and may redirect
-        with httpx.Client(timeout=30, follow_redirects=True) as client:
-            r = client.get(
-                self._url(
-                    f"repositories/{self.workspace}/{repo_slug}/pipelines/"
-                    f"{pipeline_uuid}/steps/{step_uuid}/log"
-                ),
-                auth=self._get_auth(),
-            )
-            if r.status_code == 200:
-                return r.text
-            elif r.status_code == 404:
-                return ""
-            else:
-                raise BitbucketError(f"Failed to get logs: {r.status_code}")
+        path = (
+            f"repositories/{self.workspace}/{repo_slug}/pipelines/"
+            f"{pipeline_uuid}/steps/{step_uuid}/log"
+        )
+        return self._request_text(path) or ""
 
     def stop_pipeline(
         self, repo_slug: str, pipeline_uuid: str
@@ -482,9 +534,7 @@ class BitbucketClient:
         Returns:
             Updated pipeline info
         """
-        if not pipeline_uuid.startswith("{"):
-            pipeline_uuid = f"{{{pipeline_uuid}}}"
-
+        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
         result = self._request(
             "POST",
             f"repositories/{self.workspace}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
@@ -509,12 +559,10 @@ class BitbucketClient:
         Returns:
             List of project info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"workspaces/{self.workspace}/projects",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def get_project(self, project_key: str) -> Optional[dict[str, Any]]:
         """Get project information.
@@ -570,9 +618,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to update repository: {repo_slug}")
-        return result
+        return self._require_result(result, "update repository", repo_slug)
 
     # ==================== COMMITS ====================
 
@@ -594,18 +640,12 @@ class BitbucketClient:
         Returns:
             List of commit info dicts
         """
-        params = {"pagelen": min(limit, 100)}
-        if branch:
-            params["include"] = branch
-        if path:
-            params["path"] = path
-
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/commits",
-            params=params,
+            limit=limit,
+            include=branch,
+            path=path,
         )
-        return result.get("values", []) if result else []
 
     def get_commit(
         self, repo_slug: str, commit: str
@@ -665,12 +705,10 @@ class BitbucketClient:
         Returns:
             List of status info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/commit/{commit}/statuses",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def create_commit_status(
         self,
@@ -712,9 +750,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/commit/{commit}/statuses/build",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to create status for commit {commit}")
-        return result
+        return self._require_result(result, "create status for commit", commit)
 
     # ==================== PR COMMENTS & REVIEWS ====================
 
@@ -734,12 +770,10 @@ class BitbucketClient:
         Returns:
             List of comment info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def add_pr_comment(
         self,
@@ -771,9 +805,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/comments",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to add comment to PR #{pr_id}")
-        return result
+        return self._require_result(result, "add comment to PR", f"#{pr_id}")
 
     def approve_pr(
         self, repo_slug: str, pr_id: int
@@ -791,9 +823,7 @@ class BitbucketClient:
             "POST",
             f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/approve",
         )
-        if not result:
-            raise BitbucketError(f"Failed to approve PR #{pr_id}")
-        return result
+        return self._require_result(result, "approve PR", f"#{pr_id}")
 
     def unapprove_pr(
         self, repo_slug: str, pr_id: int
@@ -829,9 +859,7 @@ class BitbucketClient:
             "POST",
             f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/request-changes",
         )
-        if not result:
-            raise BitbucketError(f"Failed to request changes on PR #{pr_id}")
-        return result
+        return self._require_result(result, "request changes on PR", f"#{pr_id}")
 
     def decline_pr(
         self, repo_slug: str, pr_id: int
@@ -849,9 +877,7 @@ class BitbucketClient:
             "POST",
             f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/decline",
         )
-        if not result:
-            raise BitbucketError(f"Failed to decline PR #{pr_id}")
-        return result
+        return self._require_result(result, "decline PR", f"#{pr_id}")
 
     def get_pr_diff(
         self, repo_slug: str, pr_id: int
@@ -865,19 +891,8 @@ class BitbucketClient:
         Returns:
             Diff content as string
         """
-        with httpx.Client(timeout=30, follow_redirects=True) as client:
-            r = client.get(
-                self._url(
-                    f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/diff"
-                ),
-                auth=self._get_auth(),
-            )
-            if r.status_code == 200:
-                return r.text
-            elif r.status_code == 404:
-                return ""
-            else:
-                raise BitbucketError(f"Failed to get PR diff: {r.status_code}")
+        path = f"repositories/{self.workspace}/{repo_slug}/pullrequests/{pr_id}/diff"
+        return self._request_text(path) or ""
 
     # ==================== DEPLOYMENTS ====================
 
@@ -895,12 +910,10 @@ class BitbucketClient:
         Returns:
             List of environment info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/environments",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def get_environment(
         self, repo_slug: str, environment_uuid: str
@@ -914,9 +927,7 @@ class BitbucketClient:
         Returns:
             Environment info or None if not found
         """
-        if not environment_uuid.startswith("{"):
-            environment_uuid = f"{{{environment_uuid}}}"
-
+        environment_uuid = ensure_uuid_braces(environment_uuid)
         return self._request(
             "GET",
             f"repositories/{self.workspace}/{repo_slug}/environments/{environment_uuid}",
@@ -938,19 +949,13 @@ class BitbucketClient:
         Returns:
             List of deployment info dicts
         """
-        if not environment_uuid.startswith("{"):
-            environment_uuid = f"{{{environment_uuid}}}"
-
-        result = self._request(
-            "GET",
+        environment_uuid = ensure_uuid_braces(environment_uuid)
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/deployments",
-            params={
-                "pagelen": min(limit, 100),
-                "environment": environment_uuid,
-                "sort": "-state.started_on",
-            },
+            limit=limit,
+            environment=environment_uuid,
+            sort="-state.started_on",
         )
-        return result.get("values", []) if result else []
 
     # ==================== WEBHOOKS ====================
 
@@ -968,12 +973,10 @@ class BitbucketClient:
         Returns:
             List of webhook info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/hooks",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def create_webhook(
         self,
@@ -1009,9 +1012,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/hooks",
             json=payload,
         )
-        if not result:
-            raise BitbucketError("Failed to create webhook")
-        return result
+        return self._require_result(result, "create webhook")
 
     def get_webhook(
         self, repo_slug: str, webhook_uid: str
@@ -1025,9 +1026,7 @@ class BitbucketClient:
         Returns:
             Webhook info or None if not found
         """
-        if not webhook_uid.startswith("{"):
-            webhook_uid = f"{{{webhook_uid}}}"
-
+        webhook_uid = ensure_uuid_braces(webhook_uid)
         return self._request(
             "GET",
             f"repositories/{self.workspace}/{repo_slug}/hooks/{webhook_uid}",
@@ -1045,9 +1044,7 @@ class BitbucketClient:
         Returns:
             True if deleted successfully
         """
-        if not webhook_uid.startswith("{"):
-            webhook_uid = f"{{{webhook_uid}}}"
-
+        webhook_uid = ensure_uuid_braces(webhook_uid)
         self._request(
             "DELETE",
             f"repositories/{self.workspace}/{repo_slug}/hooks/{webhook_uid}",
@@ -1070,12 +1067,10 @@ class BitbucketClient:
         Returns:
             List of branch info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/refs/branches",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def get_branch(
         self, repo_slug: str, branch_name: str
@@ -1110,12 +1105,11 @@ class BitbucketClient:
         Returns:
             List of tag info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/refs/tags",
-            params={"pagelen": min(limit, 100), "sort": "-target.date"},
+            limit=limit,
+            sort="-target.date",
         )
-        return result.get("values", []) if result else []
 
     def create_tag(
         self,
@@ -1147,9 +1141,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/refs/tags",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to create tag: {name}")
-        return result
+        return self._require_result(result, "create tag", name)
 
     def delete_tag(
         self, repo_slug: str, tag_name: str
@@ -1185,12 +1177,10 @@ class BitbucketClient:
         Returns:
             List of restriction info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/branch-restrictions",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def create_branch_restriction(
         self,
@@ -1247,9 +1237,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/branch-restrictions",
             json=payload,
         )
-        if not result:
-            raise BitbucketError(f"Failed to create branch restriction: {kind}")
-        return result
+        return self._require_result(result, "create branch restriction", kind)
 
     def delete_branch_restriction(
         self, repo_slug: str, restriction_id: int
@@ -1287,19 +1275,8 @@ class BitbucketClient:
         Returns:
             File content as string or None if not found
         """
-        with httpx.Client(timeout=30, follow_redirects=True) as client:
-            r = client.get(
-                self._url(
-                    f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}"
-                ),
-                auth=self._get_auth(),
-            )
-            if r.status_code == 200:
-                return r.text
-            elif r.status_code == 404:
-                return None
-            else:
-                raise BitbucketError(f"Failed to get file: {r.status_code}")
+        api_path = f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}"
+        return self._request_text(api_path)
 
     def list_directory(
         self,
@@ -1319,13 +1296,10 @@ class BitbucketClient:
         Returns:
             List of file/directory info dicts
         """
-        endpoint = f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}"
-        result = self._request(
-            "GET",
-            endpoint,
-            params={"pagelen": min(limit, 100)},
+        return self._paginated_list(
+            f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}",
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     # ==================== REPOSITORY PERMISSIONS ====================
 
@@ -1343,12 +1317,10 @@ class BitbucketClient:
         Returns:
             List of user permission info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/permissions-config/users",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def get_user_permission(
         self, repo_slug: str, selected_user: str
@@ -1388,9 +1360,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/permissions-config/users/{selected_user}",
             json={"permission": permission},
         )
-        if not result:
-            raise BitbucketError(f"Failed to update permission for user: {selected_user}")
-        return result
+        return self._require_result(result, "update permission for user", selected_user)
 
     def delete_user_permission(
         self, repo_slug: str, selected_user: str
@@ -1424,12 +1394,10 @@ class BitbucketClient:
         Returns:
             List of group permission info dicts
         """
-        result = self._request(
-            "GET",
+        return self._paginated_list(
             f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups",
-            params={"pagelen": min(limit, 100)},
+            limit=limit,
         )
-        return result.get("values", []) if result else []
 
     def get_group_permission(
         self, repo_slug: str, group_slug: str
@@ -1469,9 +1437,7 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups/{group_slug}",
             json={"permission": permission},
         )
-        if not result:
-            raise BitbucketError(f"Failed to update permission for group: {group_slug}")
-        return result
+        return self._require_result(result, "update permission for group", group_slug)
 
     def delete_group_permission(
         self, repo_slug: str, group_slug: str

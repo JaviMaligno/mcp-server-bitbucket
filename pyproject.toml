@@ -27,6 +27,15 @@ python-dotenv = "^1.0"
 fastapi = "^0.115"
 uvicorn = "^0.32"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-cov = "^4.1"
+respx = "^0.21"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
 [tool.poetry.scripts]
 mcp-server-bitbucket = "src.server:main"
 
