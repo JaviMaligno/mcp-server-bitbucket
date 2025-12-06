@@ -29,7 +29,7 @@ claude mcp add bitbucket -s user \
 
 | Tool | Description |
 |------|-------------|
-| `list_repositories` | List repositories in workspace |
+| `list_repositories` | List and search repositories (supports fuzzy name matching) |
 | `get_repository` | Get repository details |
 | `create_repository` | Create a new repository |
 | `delete_repository` | Delete a repository |
@@ -50,11 +50,30 @@ claude mcp add bitbucket -s user \
 Once configured, ask Claude to:
 
 - "List all repositories in my workspace"
+- "Search for repositories with 'api' in the name"
+- "Find all private repos containing 'test'"
 - "Show me open pull requests in my-repo"
 - "Create a PR from feature-branch to main"
 - "Trigger a pipeline on the develop branch"
 - "What's the status of the latest pipeline?"
 - "Merge PR #42 using squash strategy"
+
+### Repository Search
+
+The `list_repositories` tool supports flexible searching:
+
+```python
+# Simple fuzzy search by name
+list_repositories(search="api")  # Finds repos with "api" in name
+
+# Advanced Bitbucket query syntax
+list_repositories(query='name ~ "test" AND is_private = true')
+
+# Filter by project
+list_repositories(project_key="MYPROJECT")
+```
+
+Query syntax supports: `name ~ "term"`, `is_private = true/false`, `AND`, `OR`
 
 ## Installation Options
 

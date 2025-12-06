@@ -181,12 +181,26 @@ Start a Claude Code session and test:
 Once configured, you can ask Claude to:
 
 - "List all repositories in my workspace"
+- "Search for repositories with 'api' in the name"
+- "Find all private repos containing 'test'"
 - "Show me open pull requests in anzsic_classifier"
 - "Create a PR from feature-branch to main with title 'Add new feature'"
 - "Trigger a pipeline on the develop branch"
 - "What's the status of the latest pipeline?"
 - "Show me the logs for the failed pipeline step"
 - "Merge PR #42 using squash strategy"
+
+### Repository Search
+
+The `list_repositories` tool supports flexible searching:
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `search` | Simple fuzzy name search | `search="api"` finds repos with "api" in name |
+| `query` | Advanced Bitbucket query syntax | `query='name ~ "test" AND is_private = true'` |
+| `project_key` | Filter by project | `project_key="MYPROJECT"` |
+
+Query syntax: `name ~ "term"`, `description ~ "term"`, `is_private = true/false`, combined with `AND`/`OR`
 
 ## Quick Reference: CLI Command
 
