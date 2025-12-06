@@ -1094,6 +1094,403 @@ class BitbucketClient:
             f"repositories/{self.workspace}/{repo_slug}/refs/branches/{branch_name}",
         )
 
+    # ==================== TAGS ====================
+
+    def list_tags(
+        self,
+        repo_slug: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List tags in a repository.
+
+        Args:
+            repo_slug: Repository slug
+            limit: Maximum results to return
+
+        Returns:
+            List of tag info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/refs/tags",
+            params={"pagelen": min(limit, 100), "sort": "-target.date"},
+        )
+        return result.get("values", []) if result else []
+
+    def create_tag(
+        self,
+        repo_slug: str,
+        name: str,
+        target: str,
+        message: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create a tag.
+
+        Args:
+            repo_slug: Repository slug
+            name: Tag name (e.g., "v1.0.0")
+            target: Commit hash or branch to tag
+            message: Optional tag message (for annotated tags)
+
+        Returns:
+            Created tag info
+        """
+        payload = {
+            "name": name,
+            "target": {"hash": target},
+        }
+        if message:
+            payload["message"] = message
+
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/refs/tags",
+            json=payload,
+        )
+        if not result:
+            raise BitbucketError(f"Failed to create tag: {name}")
+        return result
+
+    def delete_tag(
+        self, repo_slug: str, tag_name: str
+    ) -> bool:
+        """Delete a tag.
+
+        Args:
+            repo_slug: Repository slug
+            tag_name: Tag name to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        self._request(
+            "DELETE",
+            f"repositories/{self.workspace}/{repo_slug}/refs/tags/{tag_name}",
+        )
+        return True
+
+    # ==================== BRANCH RESTRICTIONS ====================
+
+    def list_branch_restrictions(
+        self,
+        repo_slug: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List branch restrictions.
+
+        Args:
+            repo_slug: Repository slug
+            limit: Maximum results to return
+
+        Returns:
+            List of restriction info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/branch-restrictions",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def create_branch_restriction(
+        self,
+        repo_slug: str,
+        kind: str,
+        pattern: str = "",
+        branch_match_kind: str = "glob",
+        branch_type: Optional[str] = None,
+        users: Optional[list[dict]] = None,
+        groups: Optional[list[dict]] = None,
+        value: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Create a branch restriction.
+
+        Args:
+            repo_slug: Repository slug
+            kind: Restriction type. Options:
+                  - require_passing_builds_to_merge
+                  - require_approvals_to_merge
+                  - require_default_reviewer_approvals_to_merge
+                  - require_no_changes_requested
+                  - require_tasks_to_be_completed
+                  - require_commits_behind
+                  - push, force, delete, restrict_merges
+            pattern: Branch pattern (e.g., "main", "release/*")
+            branch_match_kind: "glob" or "branching_model"
+            branch_type: If branch_match_kind is "branching_model":
+                         development, production, feature, bugfix, release, hotfix
+            users: List of users exempt from restriction
+            groups: List of groups exempt from restriction
+            value: Number value (e.g., required approvals count)
+
+        Returns:
+            Created restriction info
+        """
+        payload: dict[str, Any] = {
+            "kind": kind,
+            "branch_match_kind": branch_match_kind,
+        }
+
+        if branch_match_kind == "glob" and pattern:
+            payload["pattern"] = pattern
+        if branch_match_kind == "branching_model" and branch_type:
+            payload["branch_type"] = branch_type
+        if users:
+            payload["users"] = users
+        if groups:
+            payload["groups"] = groups
+        if value is not None:
+            payload["value"] = value
+
+        result = self._request(
+            "POST",
+            f"repositories/{self.workspace}/{repo_slug}/branch-restrictions",
+            json=payload,
+        )
+        if not result:
+            raise BitbucketError(f"Failed to create branch restriction: {kind}")
+        return result
+
+    def delete_branch_restriction(
+        self, repo_slug: str, restriction_id: int
+    ) -> bool:
+        """Delete a branch restriction.
+
+        Args:
+            repo_slug: Repository slug
+            restriction_id: Restriction ID to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        self._request(
+            "DELETE",
+            f"repositories/{self.workspace}/{repo_slug}/branch-restrictions/{restriction_id}",
+        )
+        return True
+
+    # ==================== SOURCE ====================
+
+    def get_file_content(
+        self,
+        repo_slug: str,
+        path: str,
+        ref: str = "main",
+    ) -> Optional[str]:
+        """Get file content from repository.
+
+        Args:
+            repo_slug: Repository slug
+            path: File path (e.g., "src/main.py")
+            ref: Branch, tag, or commit (default: main)
+
+        Returns:
+            File content as string or None if not found
+        """
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
+            r = client.get(
+                self._url(
+                    f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}"
+                ),
+                auth=self._get_auth(),
+            )
+            if r.status_code == 200:
+                return r.text
+            elif r.status_code == 404:
+                return None
+            else:
+                raise BitbucketError(f"Failed to get file: {r.status_code}")
+
+    def list_directory(
+        self,
+        repo_slug: str,
+        path: str = "",
+        ref: str = "main",
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List directory contents.
+
+        Args:
+            repo_slug: Repository slug
+            path: Directory path (empty for root)
+            ref: Branch, tag, or commit (default: main)
+            limit: Maximum results to return
+
+        Returns:
+            List of file/directory info dicts
+        """
+        endpoint = f"repositories/{self.workspace}/{repo_slug}/src/{ref}/{path}"
+        result = self._request(
+            "GET",
+            endpoint,
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    # ==================== REPOSITORY PERMISSIONS ====================
+
+    def list_user_permissions(
+        self,
+        repo_slug: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List user permissions for a repository.
+
+        Args:
+            repo_slug: Repository slug
+            limit: Maximum results to return
+
+        Returns:
+            List of user permission info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def get_user_permission(
+        self, repo_slug: str, selected_user: str
+    ) -> Optional[dict[str, Any]]:
+        """Get permission for a specific user.
+
+        Args:
+            repo_slug: Repository slug
+            selected_user: User UUID or account_id
+
+        Returns:
+            User permission info or None if not found
+        """
+        return self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users/{selected_user}",
+        )
+
+    def update_user_permission(
+        self,
+        repo_slug: str,
+        selected_user: str,
+        permission: str,
+    ) -> dict[str, Any]:
+        """Update (or add) user permission.
+
+        Args:
+            repo_slug: Repository slug
+            selected_user: User UUID or account_id
+            permission: Permission level: "read", "write", or "admin"
+
+        Returns:
+            Updated permission info
+        """
+        result = self._request(
+            "PUT",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users/{selected_user}",
+            json={"permission": permission},
+        )
+        if not result:
+            raise BitbucketError(f"Failed to update permission for user: {selected_user}")
+        return result
+
+    def delete_user_permission(
+        self, repo_slug: str, selected_user: str
+    ) -> bool:
+        """Remove user permission from repository.
+
+        Args:
+            repo_slug: Repository slug
+            selected_user: User UUID or account_id
+
+        Returns:
+            True if deleted successfully
+        """
+        self._request(
+            "DELETE",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/users/{selected_user}",
+        )
+        return True
+
+    def list_group_permissions(
+        self,
+        repo_slug: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List group permissions for a repository.
+
+        Args:
+            repo_slug: Repository slug
+            limit: Maximum results to return
+
+        Returns:
+            List of group permission info dicts
+        """
+        result = self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups",
+            params={"pagelen": min(limit, 100)},
+        )
+        return result.get("values", []) if result else []
+
+    def get_group_permission(
+        self, repo_slug: str, group_slug: str
+    ) -> Optional[dict[str, Any]]:
+        """Get permission for a specific group.
+
+        Args:
+            repo_slug: Repository slug
+            group_slug: Group slug
+
+        Returns:
+            Group permission info or None if not found
+        """
+        return self._request(
+            "GET",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups/{group_slug}",
+        )
+
+    def update_group_permission(
+        self,
+        repo_slug: str,
+        group_slug: str,
+        permission: str,
+    ) -> dict[str, Any]:
+        """Update (or add) group permission.
+
+        Args:
+            repo_slug: Repository slug
+            group_slug: Group slug
+            permission: Permission level: "read", "write", or "admin"
+
+        Returns:
+            Updated permission info
+        """
+        result = self._request(
+            "PUT",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups/{group_slug}",
+            json={"permission": permission},
+        )
+        if not result:
+            raise BitbucketError(f"Failed to update permission for group: {group_slug}")
+        return result
+
+    def delete_group_permission(
+        self, repo_slug: str, group_slug: str
+    ) -> bool:
+        """Remove group permission from repository.
+
+        Args:
+            repo_slug: Repository slug
+            group_slug: Group slug
+
+        Returns:
+            True if deleted successfully
+        """
+        self._request(
+            "DELETE",
+            f"repositories/{self.workspace}/{repo_slug}/permissions-config/groups/{group_slug}",
+        )
+        return True
+
     # ==================== UTILITIES ====================
 
     @staticmethod

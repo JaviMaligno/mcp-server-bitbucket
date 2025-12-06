@@ -6,7 +6,7 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ---
 
-## Estado Actual (v0.2.0) - 38 herramientas
+## Estado Actual (v0.3.0) - 54 herramientas
 
 ### Funcionalidades Implementadas
 
@@ -22,6 +22,10 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 | **PR Reviews** | `approve_pr`, `unapprove_pr`, `request_changes_pr`, `decline_pr`, `list_pr_comments`, `add_pr_comment`, `get_pr_diff` | v0.2.0 |
 | **Deployments** | `list_environments`, `get_environment`, `list_deployment_history` | v0.2.0 |
 | **Webhooks** | `list_webhooks`, `create_webhook`, `get_webhook`, `delete_webhook` | v0.2.0 |
+| **Tags** | `list_tags`, `create_tag`, `delete_tag` | v0.3.0 |
+| **Branch Restrictions** | `list_branch_restrictions`, `create_branch_restriction`, `delete_branch_restriction` | v0.3.0 |
+| **Source** | `get_file_content`, `list_directory` | v0.3.0 |
+| **Repository Permissions** | `list_user_permissions`, `get_user_permission`, `update_user_permission`, `delete_user_permission`, `list_group_permissions`, `get_group_permission`, `update_group_permission`, `delete_group_permission` | v0.3.0 |
 
 ---
 
@@ -81,27 +85,27 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ---
 
-## Fase 2: Prioridad Media (v0.3.0) - PENDIENTE
+## Fase 2: Prioridad Media - COMPLETADA (v0.3.0)
 
 ### 2.1 Tags
 
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `list_tags` | `GET /repositories/{workspace}/{repo}/refs/tags` | Listar tags |
-| `create_tag` | `POST /repositories/{workspace}/{repo}/refs/tags` | Crear tag |
-| `delete_tag` | `DELETE /repositories/{workspace}/{repo}/refs/tags/{name}` | Eliminar tag |
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `list_tags` | DONE | Listar tags |
+| `create_tag` | DONE | Crear tag |
+| `delete_tag` | DONE | Eliminar tag |
 
 ---
 
 ### 2.2 Branch Restrictions
 
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `list_branch_restrictions` | `GET /repositories/{workspace}/{repo}/branch-restrictions` | Ver reglas de protección |
-| `create_branch_restriction` | `POST /repositories/{workspace}/{repo}/branch-restrictions` | Crear regla |
-| `delete_branch_restriction` | `DELETE /repositories/{workspace}/{repo}/branch-restrictions/{id}` | Eliminar regla |
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `list_branch_restrictions` | DONE | Ver reglas de protección |
+| `create_branch_restriction` | DONE | Crear regla |
+| `delete_branch_restriction` | DONE | Eliminar regla |
 
-**Tipos de restricción:**
+**Tipos de restricción soportados:**
 - `require_passing_builds_to_merge`
 - `require_approvals_to_merge`
 - `require_default_reviewer_approvals_to_merge`
@@ -109,7 +113,33 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ---
 
-### 2.3 Branching Model
+### 2.3 Source (Navegación de código)
+
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `get_file_content` | DONE | Leer archivo sin clonar |
+| `list_directory` | DONE | Listar directorio |
+
+---
+
+### 2.4 Repository Permissions (adelantado de Fase 3)
+
+| Herramienta | Estado | Descripción |
+|-------------|--------|-------------|
+| `list_user_permissions` | DONE | Listar permisos de usuarios |
+| `get_user_permission` | DONE | Ver permiso de un usuario |
+| `update_user_permission` | DONE | Añadir/actualizar permiso |
+| `delete_user_permission` | DONE | Eliminar permiso de usuario |
+| `list_group_permissions` | DONE | Listar permisos de grupos |
+| `get_group_permission` | DONE | Ver permiso de un grupo |
+| `update_group_permission` | DONE | Añadir/actualizar permiso de grupo |
+| `delete_group_permission` | DONE | Eliminar permiso de grupo |
+
+---
+
+## Fase 3: Prioridad Baja (v0.4.0) - PENDIENTE
+
+### 3.1 Branching Model
 
 | Herramienta | Endpoint | Descripción |
 |-------------|----------|-------------|
@@ -118,16 +148,7 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ---
 
-### 2.4 Source (Navegación de código)
-
-| Herramienta | Endpoint | Descripción |
-|-------------|----------|-------------|
-| `get_file_content` | `GET /repositories/{workspace}/{repo}/src/{commit}/{path}` | Leer archivo |
-| `list_directory` | `GET /repositories/{workspace}/{repo}/src/{commit}/{path}/` | Listar directorio |
-
----
-
-### 2.5 Downloads (Artifacts)
+### 3.2 Downloads (Artifacts)
 
 | Herramienta | Endpoint | Descripción |
 |-------------|----------|-------------|
@@ -137,26 +158,27 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ---
 
-## Fase 3: Prioridad Baja (v0.4.0) - PENDIENTE
-
-### 3.1 Issue Tracker
+### 3.3 Issue Tracker
 
 - `list_issues`, `create_issue`, `update_issue`, `get_issue`
 - Útil para equipos que no usan Jira
 
-### 3.2 Reports (Code Insights)
+### 3.4 Reports (Code Insights)
 
 - Ver reportes de cobertura y análisis estático
 - Integración con herramientas de calidad
 
-### 3.3 Repository Permissions
-
-- Gestionar permisos de usuarios/grupos
-- Nueva API 2.0 de Bitbucket
-
 ---
 
 ## Historial de Releases
+
+### v0.3.0 (2025-12-06)
+- +16 nuevas herramientas (54 total)
+- Tags: `list_tags`, `create_tag`, `delete_tag`
+- Branch Restrictions: `list_branch_restrictions`, `create_branch_restriction`, `delete_branch_restriction`
+- Source: `get_file_content`, `list_directory`
+- Repository Permissions (users): `list_user_permissions`, `get_user_permission`, `update_user_permission`, `delete_user_permission`
+- Repository Permissions (groups): `list_group_permissions`, `get_group_permission`, `update_group_permission`, `delete_group_permission`
 
 ### v0.2.0 (2025-12-06)
 - +20 nuevas herramientas
@@ -174,10 +196,10 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ## Métricas
 
-| Métrica | v0.1.x | v0.2.0 | v0.3.0 (objetivo) |
-|---------|--------|--------|-------------------|
-| Herramientas | 18 | 38 | ~50 |
-| Cobertura API | 40% | 70% | 85% |
+| Métrica | v0.1.x | v0.2.0 | v0.3.0 | v0.4.0 (objetivo) |
+|---------|--------|--------|--------|-------------------|
+| Herramientas | 18 | 38 | 54 | ~65 |
+| Cobertura API | 40% | 70% | 85% | 95% |
 
 ---
 
@@ -187,3 +209,5 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 - [API Webhooks](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-webhooks/)
 - [API Deployments](https://support.atlassian.com/bitbucket-cloud/docs/set-up-and-monitor-bitbucket-deployments/)
 - [API Commit Statuses](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-commit-statuses/)
+- [API Branch Restrictions](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-branch-restrictions/)
+- [API Repository Permissions](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-repositories/#api-repositories-workspace-repo-slug-permissions-config-users-get)

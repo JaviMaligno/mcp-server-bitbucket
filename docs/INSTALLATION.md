@@ -163,7 +163,7 @@ Start a Claude Code session and test:
 > List my Bitbucket repositories
 ```
 
-## Available Tools (38 total)
+## Available Tools (54 total)
 
 ### Repositories
 | Tool | Description |
@@ -182,6 +182,26 @@ Start a Claude Code session and test:
 | `list_commits` | List commits |
 | `get_commit` | Get commit details |
 | `compare_commits` | Compare two commits/branches |
+
+### Tags
+| Tool | Description |
+|------|-------------|
+| `list_tags` | List tags in a repo |
+| `create_tag` | Create a new tag |
+| `delete_tag` | Delete a tag |
+
+### Branch Restrictions
+| Tool | Description |
+|------|-------------|
+| `list_branch_restrictions` | List branch protection rules |
+| `create_branch_restriction` | Create protection rule |
+| `delete_branch_restriction` | Delete protection rule |
+
+### Source (File Browsing)
+| Tool | Description |
+|------|-------------|
+| `get_file_content` | Read file contents |
+| `list_directory` | List directory contents |
 
 ### Commit Statuses
 | Tool | Description |
@@ -228,6 +248,18 @@ Start a Claude Code session and test:
 | `get_webhook` | Get webhook details |
 | `delete_webhook` | Delete a webhook |
 
+### Repository Permissions
+| Tool | Description |
+|------|-------------|
+| `list_user_permissions` | List user permissions |
+| `get_user_permission` | Get user's permission |
+| `update_user_permission` | Add/update user permission |
+| `delete_user_permission` | Remove user permission |
+| `list_group_permissions` | List group permissions |
+| `get_group_permission` | Get group's permission |
+| `update_group_permission` | Add/update group permission |
+| `delete_group_permission` | Remove group permission |
+
 ### Projects
 | Tool | Description |
 |------|-------------|
@@ -264,6 +296,24 @@ Once configured, you can ask Claude to:
 **Webhooks:**
 - "List webhooks for my-repo"
 - "Create a webhook for push events"
+
+**Tags:**
+- "List all tags in my-repo"
+- "Create a tag v1.0.0 on main"
+- "Delete the old-release tag"
+
+**Branch Protection:**
+- "List branch restrictions for my-repo"
+- "Require 2 approvals to merge to main"
+
+**Source Browsing:**
+- "Show me the contents of src/main.py"
+- "List files in the root directory"
+
+**Repository Permissions:**
+- "List user permissions for my-repo"
+- "Give write access to user@example.com"
+- "List group permissions"
 
 ### Repository Search
 

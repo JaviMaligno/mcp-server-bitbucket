@@ -1261,6 +1261,479 @@ def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+# ==================== TAGS ====================
+
+
+@mcp.tool()
+def list_tags(repo_slug: str, limit: int = 50) -> dict:
+    """List tags in a repository.
+
+    Args:
+        repo_slug: Repository slug
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of tags with name, target commit, and tagger info
+    """
+    client = get_client()
+    tags = client.list_tags(repo_slug, limit=limit)
+    return {
+        "count": len(tags),
+        "tags": [
+            {
+                "name": t.get("name"),
+                "target": t.get("target", {}).get("hash", "")[:12],
+                "message": t.get("message", ""),
+                "tagger": t.get("tagger", {}).get("raw", ""),
+                "date": t.get("date"),
+            }
+            for t in tags
+        ],
+    }
+
+
+@mcp.tool()
+def create_tag(
+    repo_slug: str,
+    name: str,
+    target: str,
+    message: str = "",
+) -> dict:
+    """Create a new tag in a repository.
+
+    Args:
+        repo_slug: Repository slug
+        name: Tag name (e.g., "v1.0.0")
+        target: Commit hash or branch name to tag
+        message: Optional tag message (for annotated tags)
+
+    Returns:
+        Created tag info
+    """
+    client = get_client()
+    try:
+        result = client.create_tag(
+            repo_slug,
+            name=name,
+            target=target,
+            message=message if message else None,
+        )
+        return {
+            "success": True,
+            "name": result.get("name"),
+            "target": result.get("target", {}).get("hash", "")[:12],
+            "message": result.get("message", ""),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def delete_tag(repo_slug: str, tag_name: str) -> dict:
+    """Delete a tag from a repository.
+
+    Args:
+        repo_slug: Repository slug
+        tag_name: Tag name to delete
+
+    Returns:
+        Confirmation of deletion
+    """
+    client = get_client()
+    try:
+        client.delete_tag(repo_slug, tag_name)
+        return {
+            "success": True,
+            "message": f"Tag '{tag_name}' deleted",
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+# ==================== BRANCH RESTRICTIONS ====================
+
+
+@mcp.tool()
+def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
+    """List branch restrictions (protection rules) in a repository.
+
+    Args:
+        repo_slug: Repository slug
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of branch restrictions with kind, pattern, and settings
+    """
+    client = get_client()
+    restrictions = client.list_branch_restrictions(repo_slug, limit=limit)
+    return {
+        "count": len(restrictions),
+        "restrictions": [
+            {
+                "id": r.get("id"),
+                "kind": r.get("kind"),
+                "pattern": r.get("pattern", ""),
+                "branch_match_kind": r.get("branch_match_kind"),
+                "branch_type": r.get("branch_type"),
+                "value": r.get("value"),
+                "users": [u.get("display_name") for u in r.get("users", [])],
+                "groups": [g.get("name") for g in r.get("groups", [])],
+            }
+            for r in restrictions
+        ],
+    }
+
+
+@mcp.tool()
+def create_branch_restriction(
+    repo_slug: str,
+    kind: str,
+    pattern: str = "",
+    branch_match_kind: str = "glob",
+    branch_type: str = "",
+    value: int = 0,
+) -> dict:
+    """Create a branch restriction (protection rule).
+
+    Args:
+        repo_slug: Repository slug
+        kind: Type of restriction. Common values:
+              - "push" - Restrict who can push
+              - "force" - Restrict force push
+              - "delete" - Restrict branch deletion
+              - "restrict_merges" - Restrict who can merge
+              - "require_passing_builds_to_merge" - Require CI to pass
+              - "require_approvals_to_merge" - Require PR approvals
+              - "require_default_reviewer_approvals_to_merge"
+              - "require_no_changes_requested"
+              - "require_tasks_to_be_completed"
+        pattern: Branch pattern (e.g., "main", "release/*"). Required for glob match.
+        branch_match_kind: How to match branches - "glob" (pattern) or "branching_model" (development/production)
+        branch_type: Branch type when using branching_model - "development", "production", or specific category
+        value: Numeric value for restrictions that need it (e.g., number of required approvals)
+
+    Returns:
+        Created restriction info with ID
+    """
+    client = get_client()
+    try:
+        result = client.create_branch_restriction(
+            repo_slug,
+            kind=kind,
+            pattern=pattern,
+            branch_match_kind=branch_match_kind,
+            branch_type=branch_type if branch_type else None,
+            value=value if value else None,
+        )
+        return {
+            "success": True,
+            "id": result.get("id"),
+            "kind": result.get("kind"),
+            "pattern": result.get("pattern", ""),
+            "branch_match_kind": result.get("branch_match_kind"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def delete_branch_restriction(repo_slug: str, restriction_id: int) -> dict:
+    """Delete a branch restriction.
+
+    Args:
+        repo_slug: Repository slug
+        restriction_id: Restriction ID (from list_branch_restrictions)
+
+    Returns:
+        Confirmation of deletion
+    """
+    client = get_client()
+    try:
+        client.delete_branch_restriction(repo_slug, restriction_id)
+        return {
+            "success": True,
+            "message": f"Branch restriction {restriction_id} deleted",
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+# ==================== SOURCE (FILE BROWSING) ====================
+
+
+@mcp.tool()
+def get_file_content(
+    repo_slug: str,
+    path: str,
+    ref: str = "main",
+) -> dict:
+    """Get the content of a file from a repository.
+
+    Read file contents without cloning the repository.
+
+    Args:
+        repo_slug: Repository slug
+        path: File path (e.g., "src/main.py", "README.md")
+        ref: Branch, tag, or commit hash (default: "main")
+
+    Returns:
+        File content as text (or error if binary/not found)
+    """
+    client = get_client()
+    content = client.get_file_content(repo_slug, path, ref=ref)
+    if content is None:
+        return {"error": f"File '{path}' not found at ref '{ref}'"}
+
+    return {
+        "path": path,
+        "ref": ref,
+        "content": content,
+        "size": len(content),
+    }
+
+
+@mcp.tool()
+def list_directory(
+    repo_slug: str,
+    path: str = "",
+    ref: str = "main",
+    limit: int = 100,
+) -> dict:
+    """List contents of a directory in a repository.
+
+    Browse repository structure without cloning.
+
+    Args:
+        repo_slug: Repository slug
+        path: Directory path (empty string for root)
+        ref: Branch, tag, or commit hash (default: "main")
+        limit: Maximum number of entries (default: 100)
+
+    Returns:
+        List of files and directories with their types and sizes
+    """
+    client = get_client()
+    entries = client.list_directory(repo_slug, path, ref=ref, limit=limit)
+
+    return {
+        "path": path or "/",
+        "ref": ref,
+        "count": len(entries),
+        "entries": [
+            {
+                "path": e.get("path"),
+                "type": e.get("type"),  # "commit_file" or "commit_directory"
+                "size": e.get("size"),
+            }
+            for e in entries
+        ],
+    }
+
+
+# ==================== REPOSITORY PERMISSIONS - USERS ====================
+
+
+@mcp.tool()
+def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
+    """List user permissions for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of users with their permission levels
+    """
+    client = get_client()
+    permissions = client.list_user_permissions(repo_slug, limit=limit)
+    return {
+        "count": len(permissions),
+        "users": [
+            {
+                "user": p.get("user", {}).get("display_name"),
+                "account_id": p.get("user", {}).get("account_id"),
+                "permission": p.get("permission"),
+            }
+            for p in permissions
+        ],
+    }
+
+
+@mcp.tool()
+def get_user_permission(repo_slug: str, selected_user: str) -> dict:
+    """Get a specific user's permission for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        selected_user: User's account_id or UUID
+
+    Returns:
+        User's permission level
+    """
+    client = get_client()
+    result = client.get_user_permission(repo_slug, selected_user)
+    if not result:
+        return {"error": f"User '{selected_user}' not found or has no explicit permission"}
+
+    return {
+        "user": result.get("user", {}).get("display_name"),
+        "account_id": result.get("user", {}).get("account_id"),
+        "permission": result.get("permission"),
+    }
+
+
+@mcp.tool()
+def update_user_permission(
+    repo_slug: str,
+    selected_user: str,
+    permission: str,
+) -> dict:
+    """Update or add a user's permission for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        selected_user: User's account_id or UUID
+        permission: Permission level - "read", "write", or "admin"
+
+    Returns:
+        Updated permission info
+    """
+    client = get_client()
+    try:
+        result = client.update_user_permission(repo_slug, selected_user, permission)
+        return {
+            "success": True,
+            "user": result.get("user", {}).get("display_name"),
+            "permission": result.get("permission"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def delete_user_permission(repo_slug: str, selected_user: str) -> dict:
+    """Remove a user's explicit permission from a repository.
+
+    Args:
+        repo_slug: Repository slug
+        selected_user: User's account_id or UUID
+
+    Returns:
+        Confirmation of removal
+    """
+    client = get_client()
+    try:
+        client.delete_user_permission(repo_slug, selected_user)
+        return {
+            "success": True,
+            "message": f"User '{selected_user}' permission removed",
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+# ==================== REPOSITORY PERMISSIONS - GROUPS ====================
+
+
+@mcp.tool()
+def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
+    """List group permissions for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of groups with their permission levels
+    """
+    client = get_client()
+    permissions = client.list_group_permissions(repo_slug, limit=limit)
+    return {
+        "count": len(permissions),
+        "groups": [
+            {
+                "group": p.get("group", {}).get("name"),
+                "slug": p.get("group", {}).get("slug"),
+                "permission": p.get("permission"),
+            }
+            for p in permissions
+        ],
+    }
+
+
+@mcp.tool()
+def get_group_permission(repo_slug: str, group_slug: str) -> dict:
+    """Get a specific group's permission for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        group_slug: Group slug
+
+    Returns:
+        Group's permission level
+    """
+    client = get_client()
+    result = client.get_group_permission(repo_slug, group_slug)
+    if not result:
+        return {"error": f"Group '{group_slug}' not found or has no explicit permission"}
+
+    return {
+        "group": result.get("group", {}).get("name"),
+        "slug": result.get("group", {}).get("slug"),
+        "permission": result.get("permission"),
+    }
+
+
+@mcp.tool()
+def update_group_permission(
+    repo_slug: str,
+    group_slug: str,
+    permission: str,
+) -> dict:
+    """Update or add a group's permission for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        group_slug: Group slug
+        permission: Permission level - "read", "write", or "admin"
+
+    Returns:
+        Updated permission info
+    """
+    client = get_client()
+    try:
+        result = client.update_group_permission(repo_slug, group_slug, permission)
+        return {
+            "success": True,
+            "group": result.get("group", {}).get("name"),
+            "permission": result.get("permission"),
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def delete_group_permission(repo_slug: str, group_slug: str) -> dict:
+    """Remove a group's explicit permission from a repository.
+
+    Args:
+        repo_slug: Repository slug
+        group_slug: Group slug
+
+    Returns:
+        Confirmation of removal
+    """
+    client = get_client()
+    try:
+        client.delete_group_permission(repo_slug, group_slug)
+        return {
+            "success": True,
+            "message": f"Group '{group_slug}' permission removed",
+        }
+    except BitbucketError as e:
+        return {"success": False, "error": str(e)}
+
+
 def main():
     """Run the MCP server."""
     mcp.run()

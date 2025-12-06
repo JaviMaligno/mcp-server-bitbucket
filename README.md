@@ -13,6 +13,10 @@ MCP server for Bitbucket API operations. Works with Claude Code, Claude Desktop,
 - **Commit Statuses**: get build statuses, create status (CI/CD integration)
 - **Deployments**: list environments, get environment details, deployment history
 - **Webhooks**: list, create, get, delete
+- **Tags**: list, create, delete
+- **Branch Restrictions**: list, create, delete branch protection rules
+- **Source Browsing**: read files, list directories without cloning
+- **Repository Permissions**: manage user and group permissions
 
 ## Quick Start
 
@@ -30,7 +34,7 @@ claude mcp add bitbucket -s user \
 
 **[Full Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
-## Available Tools (38 total)
+## Available Tools (54 total)
 
 ### Repositories
 | Tool | Description |
@@ -49,6 +53,26 @@ claude mcp add bitbucket -s user \
 | `list_commits` | List commits (filter by branch or file path) |
 | `get_commit` | Get commit details |
 | `compare_commits` | Compare two commits/branches (diff stats) |
+
+### Tags
+| Tool | Description |
+|------|-------------|
+| `list_tags` | List tags in a repo |
+| `create_tag` | Create a new tag |
+| `delete_tag` | Delete a tag |
+
+### Branch Restrictions
+| Tool | Description |
+|------|-------------|
+| `list_branch_restrictions` | List branch protection rules |
+| `create_branch_restriction` | Create branch protection rule |
+| `delete_branch_restriction` | Delete branch protection rule |
+
+### Source (File Browsing)
+| Tool | Description |
+|------|-------------|
+| `get_file_content` | Read file contents without cloning |
+| `list_directory` | List directory contents |
 
 ### Commit Statuses (CI/CD)
 | Tool | Description |
@@ -95,6 +119,18 @@ claude mcp add bitbucket -s user \
 | `get_webhook` | Get webhook details |
 | `delete_webhook` | Delete a webhook |
 
+### Repository Permissions
+| Tool | Description |
+|------|-------------|
+| `list_user_permissions` | List user permissions for a repo |
+| `get_user_permission` | Get specific user's permission |
+| `update_user_permission` | Add/update user permission |
+| `delete_user_permission` | Remove user permission |
+| `list_group_permissions` | List group permissions for a repo |
+| `get_group_permission` | Get specific group's permission |
+| `update_group_permission` | Add/update group permission |
+| `delete_group_permission` | Remove group permission |
+
 ### Projects
 | Tool | Description |
 |------|-------------|
@@ -131,6 +167,27 @@ Once configured, ask Claude to:
 **Webhooks:**
 - "List webhooks configured for my-repo"
 - "Create a webhook for push events"
+
+**Tags:**
+- "List all tags in my-repo"
+- "Create a tag v1.0.0 on the main branch"
+- "Delete the old-release tag"
+
+**Branch Protection:**
+- "List branch restrictions for my-repo"
+- "Require 2 approvals to merge to main"
+- "Prevent force push to production branches"
+
+**Source Browsing:**
+- "Show me the contents of src/main.py"
+- "List files in the root directory"
+- "Read the README.md from the develop branch"
+
+**Repository Permissions:**
+- "List user permissions for my-repo"
+- "Give user@example.com write access to my-repo"
+- "List group permissions for my-repo"
+- "Grant admin access to the DevOps group"
 
 ### Repository Search
 
