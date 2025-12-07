@@ -6,6 +6,7 @@ from src.utils import (
     first_line,
     handle_bitbucket_error,
     not_found_response,
+    sanitize_search_term,
     truncate_hash,
 )
 
@@ -157,3 +158,46 @@ class TestNotFoundResponse:
         """Should format message for commit."""
         result = not_found_response("Commit", "abc123")
         assert result == {"error": "Commit 'abc123' not found"}
+
+
+class TestSanitizeSearchTerm:
+    """Tests for sanitize_search_term function (BQL injection prevention)."""
+
+    def test_allows_normal_search_term(self):
+        """Normal search terms should pass through unchanged."""
+        result = sanitize_search_term("my-repo")
+        assert result == "my-repo"
+
+    def test_allows_alphanumeric_with_dashes(self):
+        """Alphanumeric terms with dashes should be unchanged."""
+        result = sanitize_search_term("my-test-repo-123")
+        assert result == "my-test-repo-123"
+
+    def test_removes_double_quotes(self):
+        """Double quotes should be removed to prevent BQL injection."""
+        result = sanitize_search_term('" OR is_private=false OR "')
+        assert result == " OR is_private=false OR "
+        assert '"' not in result
+
+    def test_removes_backslashes(self):
+        """Backslashes should be removed to prevent escape sequences."""
+        result = sanitize_search_term('test\\ninjection')
+        assert result == "testninjection"
+        assert '\\' not in result
+
+    def test_handles_complex_injection_attempt(self):
+        """Complex injection attempts should be sanitized."""
+        malicious = 'test" AND name~"admin'
+        result = sanitize_search_term(malicious)
+        assert result == "test AND name~admin"
+        assert '"' not in result
+
+    def test_handles_empty_string(self):
+        """Empty string should return empty string."""
+        result = sanitize_search_term("")
+        assert result == ""
+
+    def test_preserves_spaces_and_underscores(self):
+        """Spaces and underscores should be preserved."""
+        result = sanitize_search_term("my repo_name test")
+        assert result == "my repo_name test"

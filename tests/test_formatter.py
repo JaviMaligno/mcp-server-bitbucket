@@ -60,11 +60,15 @@ class TestOutputFormat:
         OutputFormat.reset()
         assert OutputFormat.get() == "toon"
 
-    def test_environment_invalid_defaults_to_json(self):
-        """Invalid environment value defaults to JSON."""
+    def test_environment_invalid_raises_validation_error(self):
+        """Invalid environment value raises validation error for security."""
+        import pytest
+        from pydantic import ValidationError
+
         os.environ["OUTPUT_FORMAT"] = "invalid"
         OutputFormat.reset()
-        assert OutputFormat.get() == "json"
+        with pytest.raises(ValidationError):
+            OutputFormat.get()
 
     def test_reset_clears_cache(self):
         """Reset clears cached value."""

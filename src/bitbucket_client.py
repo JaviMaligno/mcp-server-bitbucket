@@ -25,9 +25,14 @@ class BitbucketError(Exception):
 
 
 class BitbucketClient:
-    """Client for Bitbucket API operations."""
+    """Client for Bitbucket API operations.
+
+    Uses connection pooling for better performance when making
+    multiple requests.
+    """
 
     BASE_URL = "https://api.bitbucket.org/2.0"
+    DEFAULT_TIMEOUT = 30
 
     def __init__(
         self,
@@ -46,7 +51,36 @@ class BitbucketClient:
 
         self.workspace = workspace or settings.bitbucket_workspace
         self.email = email or settings.bitbucket_email
-        self.api_token = api_token or settings.bitbucket_api_token
+        # Handle SecretStr - get the secret value if it's a SecretStr
+        token = api_token or settings.bitbucket_api_token
+        self.api_token = token.get_secret_value() if hasattr(token, "get_secret_value") else token
+
+        # Connection pooling - reuse HTTP client for multiple requests
+        self._client: Optional[httpx.Client] = None
+
+    def _get_http_client(self) -> httpx.Client:
+        """Get or create the HTTP client with connection pooling."""
+        if self._client is None:
+            self._client = httpx.Client(
+                timeout=self.DEFAULT_TIMEOUT,
+                auth=(self.email, self.api_token),
+                follow_redirects=True,
+            )
+        return self._client
+
+    def close(self) -> None:
+        """Close the HTTP client and release connections."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+    def __enter__(self) -> "BitbucketClient":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, *args) -> None:
+        """Context manager exit - close client."""
+        self.close()
 
     def _get_auth(self) -> tuple[str, str]:
         """Get auth tuple for Basic Auth requests."""
@@ -75,41 +109,43 @@ class BitbucketClient:
         path: str,
         json: Optional[dict] = None,
         params: Optional[dict] = None,
-        timeout: int = 30,
+        timeout: Optional[int] = None,
     ) -> Optional[dict]:
-        """Make an API request.
+        """Make an API request using connection pooling.
 
         Args:
             method: HTTP method
             path: API path (without base URL)
             json: Request body
             params: Query parameters
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (uses default if not specified)
 
         Returns:
             Response JSON or None for 204/404
         """
-        with httpx.Client(timeout=timeout) as client:
-            r = client.request(
-                method,
-                self._url(path),
-                auth=self._get_auth(),
-                json=json,
-                params=params,
-                headers={"Content-Type": "application/json"} if json else None,
-            )
+        client = self._get_http_client()
+        r = client.request(
+            method,
+            self._url(path),
+            json=json,
+            params=params,
+            headers={"Content-Type": "application/json"} if json else None,
+            timeout=timeout or self.DEFAULT_TIMEOUT,
+        )
 
-            if r.status_code == 404:
-                return None
-            if r.status_code in (200, 201, 202):
-                return r.json() if r.content else {}
-            if r.status_code == 204:
-                return {}
+        if r.status_code == 404:
+            return None
+        if r.status_code in (200, 201, 202):
+            return r.json() if r.content else {}
+        if r.status_code == 204:
+            return {}
 
-            raise BitbucketError(
-                f"API error {r.status_code}: {r.text}\n"
-                f"Method: {method} {path}"
-            )
+        # Truncate error response to avoid huge exception messages
+        error_text = r.text[:500] if len(r.text) > 500 else r.text
+        raise BitbucketError(
+            f"API error {r.status_code}: {error_text}\n"
+            f"Method: {method} {path}"
+        )
 
     def _paginated_list(
         self,
@@ -137,31 +173,31 @@ class BitbucketClient:
     def _request_text(
         self,
         path: str,
-        timeout: int = 30,
+        timeout: Optional[int] = None,
     ) -> Optional[str]:
-        """Make an API request that returns plain text.
+        """Make an API request that returns plain text using connection pooling.
 
         Used for endpoints that return text content like logs, diffs, and files.
         Follows redirects automatically.
 
         Args:
             path: API path (without base URL)
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (uses default if not specified)
 
         Returns:
             Response text or None for 404
         """
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            r = client.get(
-                self._url(path),
-                auth=self._get_auth(),
-            )
-            if r.status_code == 200:
-                return r.text
-            elif r.status_code == 404:
-                return None
-            else:
-                raise BitbucketError(f"Request failed: {r.status_code}")
+        client = self._get_http_client()
+        r = client.get(
+            self._url(path),
+            timeout=timeout or self.DEFAULT_TIMEOUT,
+        )
+        if r.status_code == 200:
+            return r.text
+        elif r.status_code == 404:
+            return None
+        else:
+            raise BitbucketError(f"Request failed: {r.status_code}")
 
     def _require_result(
         self,

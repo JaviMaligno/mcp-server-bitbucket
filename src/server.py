@@ -44,7 +44,12 @@ from src.models import (
     UserPermission,
     WebhookSummary,
 )
-from src.utils import handle_bitbucket_error, not_found_response, truncate_hash
+from src.utils import (
+    handle_bitbucket_error,
+    not_found_response,
+    sanitize_search_term,
+    truncate_hash,
+)
 
 # Initialize FastMCP server
 mcp = FastMCP("bitbucket")
@@ -54,6 +59,7 @@ mcp = FastMCP("bitbucket")
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_repository(repo_slug: str) -> dict:
     """Get information about a Bitbucket repository.
@@ -126,6 +132,7 @@ def delete_repository(repo_slug: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_repositories(
     project_key: Optional[str] = None,
@@ -153,9 +160,11 @@ def list_repositories(
     client = get_client()
 
     # Convert simple search to query syntax
+    # Sanitize search term to prevent BQL injection
     effective_query = query
     if search and not query:
-        effective_query = f'name ~ "{search}"'
+        safe_search = sanitize_search_term(search)
+        effective_query = f'name ~ "{safe_search}"'
 
     repos = client.list_repositories(
         project_key=project_key,
@@ -212,6 +221,7 @@ def create_pull_request(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_pull_request(repo_slug: str, pr_id: int) -> dict:
     """Get information about a pull request.
@@ -232,6 +242,7 @@ def get_pull_request(repo_slug: str, pr_id: int) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_pull_requests(
     repo_slug: str,
@@ -331,6 +342,7 @@ def trigger_pipeline(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
     """Get status of a pipeline run.
@@ -351,6 +363,7 @@ def get_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_pipelines(repo_slug: str, limit: int = 10) -> dict:
     """List recent pipeline runs for a repository.
@@ -370,6 +383,7 @@ def list_pipelines(repo_slug: str, limit: int = 10) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_pipeline_logs(
     repo_slug: str,
@@ -431,6 +445,7 @@ def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_projects(limit: int = 50) -> dict:
     """List projects in the workspace.
@@ -449,6 +464,7 @@ def list_projects(limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_project(project_key: str) -> dict:
     """Get information about a specific project.
@@ -516,6 +532,7 @@ def update_repository(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_branches(repo_slug: str, limit: int = 50) -> dict:
     """List branches in a repository.
@@ -535,6 +552,7 @@ def list_branches(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_branch(repo_slug: str, branch_name: str) -> dict:
     """Get information about a specific branch.
@@ -567,6 +585,7 @@ def get_branch(repo_slug: str, branch_name: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_commits(
     repo_slug: str,
@@ -593,6 +612,7 @@ def list_commits(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_commit(repo_slug: str, commit: str) -> dict:
     """Get detailed information about a specific commit.
@@ -613,6 +633,7 @@ def get_commit(repo_slug: str, commit: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def compare_commits(repo_slug: str, base: str, head: str) -> dict:
     """Compare two commits or branches and see files changed.
@@ -648,6 +669,7 @@ def compare_commits(repo_slug: str, base: str, head: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_commit_statuses(
     repo_slug: str,
@@ -722,6 +744,7 @@ def create_commit_status(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_pr_comments(
     repo_slug: str,
@@ -902,6 +925,7 @@ def get_pr_diff(repo_slug: str, pr_id: int) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_environments(repo_slug: str, limit: int = 20) -> dict:
     """List deployment environments for a repository.
@@ -921,6 +945,7 @@ def list_environments(repo_slug: str, limit: int = 20) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_environment(repo_slug: str, environment_uuid: str) -> dict:
     """Get details about a specific deployment environment.
@@ -948,6 +973,7 @@ def get_environment(repo_slug: str, environment_uuid: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_deployment_history(
     repo_slug: str,
@@ -977,6 +1003,7 @@ def list_deployment_history(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
     """List webhooks configured for a repository.
@@ -1038,6 +1065,7 @@ def create_webhook(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_webhook(repo_slug: str, webhook_uuid: str) -> dict:
     """Get details about a specific webhook.
@@ -1079,6 +1107,7 @@ def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_tags(repo_slug: str, limit: int = 50) -> dict:
     """List tags in a repository.
@@ -1153,6 +1182,7 @@ def delete_tag(repo_slug: str, tag_name: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
     """List branch restrictions (protection rules) in a repository.
@@ -1241,6 +1271,7 @@ def delete_branch_restriction(repo_slug: str, restriction_id: int) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_file_content(
     repo_slug: str,
@@ -1273,6 +1304,7 @@ def get_file_content(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_directory(
     repo_slug: str,
@@ -1307,6 +1339,7 @@ def list_directory(
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
     """List user permissions for a repository.
@@ -1326,6 +1359,7 @@ def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_user_permission(repo_slug: str, selected_user: str) -> dict:
     """Get a specific user's permission for a repository.
@@ -1393,6 +1427,7 @@ def delete_user_permission(repo_slug: str, selected_user: str) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
     """List group permissions for a repository.
@@ -1412,6 +1447,7 @@ def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@handle_bitbucket_error
 @formatted
 def get_group_permission(repo_slug: str, group_slug: str) -> dict:
     """Get a specific group's permission for a repository.

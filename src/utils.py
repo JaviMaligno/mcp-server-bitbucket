@@ -114,3 +114,30 @@ def not_found_response(resource: str, identifier: str) -> dict[str, Any]:
         {'error': "Repository 'my-repo' not found"}
     """
     return {"error": f"{resource} '{identifier}' not found"}
+
+
+def sanitize_search_term(search: str) -> str:
+    """Sanitize a search term to prevent BQL injection.
+
+    Removes or escapes characters that could be used to inject
+    Bitbucket Query Language operators.
+
+    Args:
+        search: User-provided search term
+
+    Returns:
+        Sanitized search term safe for BQL interpolation
+
+    Examples:
+        >>> sanitize_search_term("my-repo")
+        'my-repo'
+        >>> sanitize_search_term('" OR is_private=false OR "')
+        ' OR is_private=false OR '
+        >>> sanitize_search_term('test" AND name~"')
+        'test AND name'
+    """
+    # Remove double quotes which are used to delimit strings in BQL
+    sanitized = search.replace('"', "")
+    # Remove backslashes which could be used for escaping
+    sanitized = sanitized.replace("\\", "")
+    return sanitized

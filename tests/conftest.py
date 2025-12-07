@@ -1,8 +1,23 @@
 """Pytest fixtures for bitbucket-mcp tests."""
 
+import os
+
 import pytest
 import respx
 from httpx import Response
+
+
+@pytest.fixture(autouse=True)
+def set_test_env_vars(monkeypatch):
+    """Set required environment variables for all tests."""
+    monkeypatch.setenv("BITBUCKET_WORKSPACE", "test-workspace")
+    monkeypatch.setenv("BITBUCKET_EMAIL", "test@example.com")
+    monkeypatch.setenv("BITBUCKET_API_TOKEN", "test-token-12345")
+    # Clear settings cache to pick up new env vars
+    from src.settings import clear_settings_cache
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
 
 
 @pytest.fixture

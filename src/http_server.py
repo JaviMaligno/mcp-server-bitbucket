@@ -27,13 +27,20 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS for local development
+# CORS configuration
+# In production, set ALLOWED_ORIGINS env var to restrict origins
+# e.g., ALLOWED_ORIGINS=https://myapp.com,https://admin.myapp.com
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+allowed_origins = [o.strip() for o in allowed_origins if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Use explicit origins list if configured, otherwise allow localhost for dev
+    allow_origins=allowed_origins if allowed_origins else ["http://localhost:3000", "http://localhost:8080"],
+    # Disable credentials when using wildcard origins (security best practice)
+    allow_credentials=bool(allowed_origins),
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -141,9 +148,10 @@ async def invoke_tool(tool_name: str, request: ToolRequest) -> ToolResponse:
     tool_func = TOOLS[tool_name]
 
     try:
-        logger.info(f"Invoking tool: {tool_name} with args: {request.arguments}")
+        # Log tool invocation without potentially sensitive arguments
+        logger.info(f"Invoking tool: {tool_name}")
         result = tool_func(**request.arguments)
-        logger.info(f"Tool {tool_name} result: {result}")
+        logger.info(f"Tool {tool_name} completed successfully")
 
         # Check if result indicates an error
         if isinstance(result, dict) and result.get("error"):
@@ -159,21 +167,25 @@ async def invoke_tool(tool_name: str, request: ToolRequest) -> ToolResponse:
         )
 
     except TypeError as e:
-        # Wrong arguments
+        # Wrong arguments - log full error internally, return generic message
+        logger.warning(f"Invalid arguments for {tool_name}: {e}")
         return ToolResponse(
             success=False,
-            error=f"Invalid arguments: {str(e)}",
+            error="Invalid arguments provided. Please check the tool documentation.",
         )
     except BitbucketError as e:
+        # Log full API error internally, return sanitized message
+        logger.warning(f"Bitbucket API error for {tool_name}: {e}")
         return ToolResponse(
             success=False,
-            error=str(e),
+            error="Bitbucket API request failed. Please check your permissions and try again.",
         )
     except Exception as e:
+        # Log full exception internally, never expose internal details
         logger.exception(f"Error invoking tool {tool_name}")
         return ToolResponse(
             success=False,
-            error=f"Internal error: {str(e)}",
+            error="An internal error occurred. Please try again later.",
         )
 
 
