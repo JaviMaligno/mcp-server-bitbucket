@@ -20,6 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from src.bitbucket_client import get_client
 from src.formatter import formatted
+from src.settings import CommitStatusState, MergeStrategy, PRState
 from src.models import (
     BranchRestriction,
     BranchSummary,
@@ -53,6 +54,26 @@ from src.utils import (
 
 # Initialize FastMCP server
 mcp = FastMCP("bitbucket")
+
+
+# ==================== VALIDATION HELPERS ====================
+
+
+def validate_limit(limit: int, max_limit: int = 100) -> int:
+    """Validate and clamp limit parameter.
+
+    Args:
+        limit: Requested limit
+        max_limit: Maximum allowed limit
+
+    Returns:
+        Validated limit between 1 and max_limit
+    """
+    if limit < 1:
+        return 1
+    if limit > max_limit:
+        return max_limit
+    return limit
 
 
 # ==================== REPOSITORY TOOLS ====================
@@ -152,7 +173,7 @@ def list_repositories(
                - description ~ "classifier" (search description)
                - is_private = false (public repos only)
                - name ~ "test" AND is_private = true
-        limit: Maximum number of results (default: 50)
+        limit: Maximum number of results (default: 50, max: 100)
 
     Returns:
         List of repositories with basic info
@@ -166,10 +187,12 @@ def list_repositories(
         safe_search = sanitize_search_term(search)
         effective_query = f'name ~ "{safe_search}"'
 
+    validated_limit = validate_limit(limit)
+
     repos = client.list_repositories(
         project_key=project_key,
         query=effective_query,
-        limit=limit,
+        limit=validated_limit,
     )
     return {
         "repositories": [RepositorySummary.from_api(r).model_dump() for r in repos],
@@ -254,13 +277,19 @@ def list_pull_requests(
     Args:
         repo_slug: Repository slug
         state: Filter by state: OPEN, MERGED, DECLINED, SUPERSEDED (default: OPEN)
-        limit: Maximum number of results (default: 20)
+        limit: Maximum number of results (default: 20, max: 100)
 
     Returns:
         List of PRs with basic info
     """
+    # Validate state - use enum value or default to OPEN
+    try:
+        validated_state = PRState(state.upper()).value
+    except ValueError:
+        validated_state = PRState.OPEN.value
+
     client = get_client()
-    prs = client.list_pull_requests(repo_slug, state=state, limit=limit)
+    prs = client.list_pull_requests(repo_slug, state=validated_state, limit=validate_limit(limit))
     return {
         "pull_requests": [
             PullRequestSummary.from_api(pr, client.extract_pr_url(pr)).model_dump()
@@ -291,11 +320,17 @@ def merge_pull_request(
     Returns:
         Merged PR info
     """
+    # Validate merge strategy - use enum value or default to merge_commit
+    try:
+        validated_strategy = MergeStrategy(merge_strategy.lower()).value
+    except ValueError:
+        validated_strategy = MergeStrategy.MERGE_COMMIT.value
+
     client = get_client()
     result = client.merge_pull_request(
         repo_slug=repo_slug,
         pr_id=pr_id,
-        merge_strategy=merge_strategy,
+        merge_strategy=validated_strategy,
         close_source_branch=close_source_branch,
         message=message,
     )
@@ -376,7 +411,7 @@ def list_pipelines(repo_slug: str, limit: int = 10) -> dict:
         List of recent pipeline runs
     """
     client = get_client()
-    pipelines = client.list_pipelines(repo_slug, limit=limit)
+    pipelines = client.list_pipelines(repo_slug, limit=validate_limit(limit))
     return {
         "pipelines": [PipelineSummary.from_api(p).model_dump() for p in pipelines],
     }
@@ -457,7 +492,7 @@ def list_projects(limit: int = 50) -> dict:
         List of projects with key, name, and description
     """
     client = get_client()
-    projects = client.list_projects(limit=limit)
+    projects = client.list_projects(limit=validate_limit(limit))
     return {
         "projects": [ProjectSummary.from_api(p).model_dump() for p in projects],
     }
@@ -545,7 +580,7 @@ def list_branches(repo_slug: str, limit: int = 50) -> dict:
         List of branches with commit info
     """
     client = get_client()
-    branches = client.list_branches(repo_slug, limit=limit)
+    branches = client.list_branches(repo_slug, limit=validate_limit(limit))
     return {
         "branches": [BranchSummary.from_api(b).model_dump() for b in branches],
     }
@@ -605,7 +640,7 @@ def list_commits(
         List of commits with hash, message, author, and date
     """
     client = get_client()
-    commits = client.list_commits(repo_slug, branch=branch, path=path, limit=limit)
+    commits = client.list_commits(repo_slug, branch=branch, path=path, limit=validate_limit(limit))
     return {
         "commits": [CommitSummary.from_api(c).model_dump() for c in commits],
     }
@@ -687,7 +722,7 @@ def get_commit_statuses(
         List of CI/CD statuses (builds, checks) for the commit
     """
     client = get_client()
-    statuses = client.get_commit_statuses(repo_slug, commit, limit=limit)
+    statuses = client.get_commit_statuses(repo_slug, commit, limit=validate_limit(limit))
     return {
         "commit": truncate_hash(commit),
         "statuses": [CommitStatus.from_api(s).model_dump() for s in statuses],
@@ -722,11 +757,17 @@ def create_commit_status(
     Returns:
         Created status info
     """
+    # Validate state - must be a valid CommitStatusState
+    try:
+        validated_state = CommitStatusState(state.upper()).value
+    except ValueError:
+        return {"success": False, "error": f"Invalid state '{state}'. Must be one of: SUCCESSFUL, FAILED, INPROGRESS, STOPPED"}
+
     client = get_client()
     result = client.create_commit_status(
         repo_slug=repo_slug,
         commit=commit,
-        state=state,
+        state=validated_state,
         key=key,
         url=url,
         name=name,
@@ -762,7 +803,7 @@ def list_pr_comments(
         List of comments with author, content, and timestamps
     """
     client = get_client()
-    comments = client.list_pr_comments(repo_slug, pr_id, limit=limit)
+    comments = client.list_pr_comments(repo_slug, pr_id, limit=validate_limit(limit))
     return {
         "pr_id": pr_id,
         "comments": [CommentSummary.from_api(c).model_dump() for c in comments],
@@ -938,7 +979,7 @@ def list_environments(repo_slug: str, limit: int = 20) -> dict:
         List of environments (e.g., test, staging, production)
     """
     client = get_client()
-    environments = client.list_environments(repo_slug, limit=limit)
+    environments = client.list_environments(repo_slug, limit=validate_limit(limit))
     return {
         "environments": [EnvironmentSummary.from_api(e).model_dump() for e in environments],
     }
@@ -992,7 +1033,7 @@ def list_deployment_history(
     """
     client = get_client()
     deployments = client.list_deployment_history(
-        repo_slug, environment_uuid, limit=limit
+        repo_slug, environment_uuid, limit=validate_limit(limit)
     )
     return {
         "deployments": [DeploymentSummary.from_api(d).model_dump() for d in deployments],
@@ -1016,7 +1057,7 @@ def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
         List of webhooks with URL, events, and status
     """
     client = get_client()
-    webhooks = client.list_webhooks(repo_slug, limit=limit)
+    webhooks = client.list_webhooks(repo_slug, limit=validate_limit(limit))
     return {
         "webhooks": [WebhookSummary.from_api(w).model_dump() for w in webhooks],
     }
@@ -1120,7 +1161,7 @@ def list_tags(repo_slug: str, limit: int = 50) -> dict:
         List of tags with name, target commit, and tagger info
     """
     client = get_client()
-    tags = client.list_tags(repo_slug, limit=limit)
+    tags = client.list_tags(repo_slug, limit=validate_limit(limit))
     return {
         "tags": [TagSummary.from_api(t).model_dump() for t in tags],
     }
@@ -1195,7 +1236,7 @@ def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
         List of branch restrictions with kind, pattern, and settings
     """
     client = get_client()
-    restrictions = client.list_branch_restrictions(repo_slug, limit=limit)
+    restrictions = client.list_branch_restrictions(repo_slug, limit=validate_limit(limit))
     return {
         "restrictions": [BranchRestriction.from_api(r).model_dump() for r in restrictions],
     }
@@ -1326,7 +1367,7 @@ def list_directory(
         List of files and directories with their types and sizes
     """
     client = get_client()
-    entries = client.list_directory(repo_slug, path, ref=ref, limit=limit)
+    entries = client.list_directory(repo_slug, path, ref=ref, limit=validate_limit(limit))
 
     return {
         "path": path or "/",
@@ -1352,7 +1393,7 @@ def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
         List of users with their permission levels
     """
     client = get_client()
-    permissions = client.list_user_permissions(repo_slug, limit=limit)
+    permissions = client.list_user_permissions(repo_slug, limit=validate_limit(limit))
     return {
         "users": [UserPermission.from_api(p).model_dump() for p in permissions],
     }
@@ -1440,7 +1481,7 @@ def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
         List of groups with their permission levels
     """
     client = get_client()
-    permissions = client.list_group_permissions(repo_slug, limit=limit)
+    permissions = client.list_group_permissions(repo_slug, limit=validate_limit(limit))
     return {
         "groups": [GroupPermission.from_api(p).model_dump() for p in permissions],
     }
