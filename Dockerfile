@@ -2,18 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install poetry
-RUN pip install poetry
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Copy dependency files and README
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 
-# Install dependencies (without dev dependencies, without installing the project itself)
-RUN poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi --only main --no-root
+# Install dependencies (without dev dependencies)
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy source code
 COPY src/ ./src/
+
+# Install the project
+RUN uv sync --frozen --no-dev
 
 # Set environment variables
 ENV PORT=8080
@@ -23,4 +25,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
 
 # Run HTTP server
-CMD ["uvicorn", "src.http_server:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "uvicorn", "src.http_server:app", "--host", "0.0.0.0", "--port", "8080"]

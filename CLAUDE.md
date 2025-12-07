@@ -37,6 +37,8 @@ The codebase has a simple layered architecture:
 
 - **`src/bitbucket_client.py`**: Low-level HTTP client for Bitbucket API 2.0. Uses httpx with Basic Auth. Contains all the actual API calls organized by domain (repositories, PRs, pipelines, etc.). Exposes a singleton via `get_client()`.
 
+- **`src/settings.py`**: Centralized configuration using pydantic-settings. Loads environment variables and `.env` files. Provides `get_settings()` for cached access to configuration.
+
 - **`src/formatter.py`**: Output formatter supporting JSON (default) and TOON formats. The `@formatted` decorator is applied to all tools to enable configurable output.
 
 - **`src/models.py`**: Pydantic models for response transformation. Handles field renaming, timestamp truncation, and token optimization.

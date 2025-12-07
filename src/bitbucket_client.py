@@ -11,12 +11,11 @@ Provides all Bitbucket API operations needed by the MCP tools:
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Optional
 
 import httpx
-from dotenv import load_dotenv
 
+from src.settings import get_settings
 from src.utils import ensure_uuid_braces
 
 
@@ -39,20 +38,15 @@ class BitbucketClient:
         """Initialize Bitbucket client.
 
         Args:
-            workspace: Bitbucket workspace (default from env)
-            email: Bitbucket email for auth (default from env)
-            api_token: Bitbucket access token (default from env)
+            workspace: Bitbucket workspace (default from settings)
+            email: Bitbucket email for auth (default from settings)
+            api_token: Bitbucket access token (default from settings)
         """
-        load_dotenv(override=True)
+        settings = get_settings()
 
-        self.workspace = workspace or os.getenv("BITBUCKET_WORKSPACE", "simplekyc")
-        self.email = email or os.getenv("BITBUCKET_EMAIL")
-        self.api_token = api_token or os.getenv("BITBUCKET_API_TOKEN")
-
-        if not self.email or not self.api_token:
-            raise BitbucketError(
-                "Missing Bitbucket credentials. Set BITBUCKET_EMAIL and BITBUCKET_API_TOKEN"
-            )
+        self.workspace = workspace or settings.bitbucket_workspace
+        self.email = email or settings.bitbucket_email
+        self.api_token = api_token or settings.bitbucket_api_token
 
     def _get_auth(self) -> tuple[str, str]:
         """Get auth tuple for Basic Auth requests."""

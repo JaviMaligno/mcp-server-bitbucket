@@ -21,9 +21,9 @@ Usage:
 
 from __future__ import annotations
 
-import os
 from functools import wraps
 from typing import Any, Callable, TypeVar
+from src.settings import clear_settings_cache, get_settings
 
 # Lazy import to avoid import errors if toon-llm not installed
 _toon_encode = None
@@ -56,11 +56,10 @@ class OutputFormat:
 
     @classmethod
     def get(cls) -> str:
-        """Get current output format from environment or cache."""
+        """Get current output format from settings or cache."""
         if cls._current is None:
-            cls._current = os.getenv("OUTPUT_FORMAT", cls.JSON).lower()
-            if cls._current not in (cls.JSON, cls.TOON):
-                cls._current = cls.JSON
+            fmt = get_settings().output_format.lower()
+            cls._current = fmt if fmt in (cls.JSON, cls.TOON) else cls.JSON
         return cls._current
 
     @classmethod
@@ -71,8 +70,9 @@ class OutputFormat:
 
     @classmethod
     def reset(cls) -> None:
-        """Reset to read from environment again."""
+        """Reset to read from settings again."""
         cls._current = None
+        clear_settings_cache()
 
     @classmethod
     def is_toon(cls) -> bool:
