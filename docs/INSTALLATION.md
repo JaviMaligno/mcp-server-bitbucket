@@ -95,6 +95,17 @@ claude mcp add bitbucket -s user \
   -- mcp-server-bitbucket
 ```
 
+**With TOON format for ~30-40% token savings:**
+
+```bash
+claude mcp add bitbucket -s user \
+  -e OUTPUT_FORMAT=toon \
+  -e BITBUCKET_WORKSPACE=your-workspace \
+  -e BITBUCKET_EMAIL=your-email@example.com \
+  -e BITBUCKET_API_TOKEN=your-api-token \
+  -- mcp-server-bitbucket
+```
+
 **Example with real values:**
 
 ```bash
@@ -163,7 +174,7 @@ Start a Claude Code session and test:
 > List my Bitbucket repositories
 ```
 
-## Available Tools (54 total)
+## Available Tools (53 total)
 
 ### Repositories
 | Tool | Description |
@@ -343,6 +354,14 @@ Where:
 - `<workspace>` - Your Bitbucket workspace slug (e.g., `simplekyc`)
 - `<email>` - Your Bitbucket account email
 - `<token>` - The API token you created in Step 2
+
+### Output Format Options
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `OUTPUT_FORMAT` | `json` (default), `toon` | Response format. TOON saves ~30-40% tokens |
+
+Add `-e OUTPUT_FORMAT=toon` for token-optimized responses.
 
 ## Troubleshooting
 

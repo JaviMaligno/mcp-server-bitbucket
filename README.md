@@ -34,7 +34,7 @@ claude mcp add bitbucket -s user \
 
 **[Full Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
-## Available Tools (54 total)
+## Available Tools (53 total)
 
 ### Repositories
 | Tool | Description |
@@ -232,7 +232,7 @@ pipx install mcp-server-bitbucket
 ```bash
 git clone git@bitbucket.org:simplekyc/bitbucket-mcp.git
 cd bitbucket-mcp
-poetry install
+uv sync
 ```
 
 ## Configuration
@@ -247,6 +247,25 @@ claude mcp add bitbucket -s user \
   -- mcp-server-bitbucket
 ```
 
+### Output Format (Optional)
+
+Set `OUTPUT_FORMAT` to optimize token usage:
+
+```bash
+# TOON format for ~30-40% token savings
+claude mcp add bitbucket -s user \
+  -e OUTPUT_FORMAT=toon \
+  -e BITBUCKET_WORKSPACE=your-workspace \
+  -e BITBUCKET_EMAIL=your-email@example.com \
+  -e BITBUCKET_API_TOKEN=your-api-token \
+  -- mcp-server-bitbucket
+```
+
+| Format | Description | Use case |
+|--------|-------------|----------|
+| `json` (default) | Standard JSON | Maximum compatibility, debugging |
+| `toon` | [TOON format](https://toonformat.dev/) | High-volume usage, token cost optimization |
+
 ### Manual Configuration
 
 Add to `~/.claude.json`:
@@ -259,7 +278,8 @@ Add to `~/.claude.json`:
       "env": {
         "BITBUCKET_WORKSPACE": "your-workspace",
         "BITBUCKET_EMAIL": "your-email@example.com",
-        "BITBUCKET_API_TOKEN": "your-api-token"
+        "BITBUCKET_API_TOKEN": "your-api-token",
+        "OUTPUT_FORMAT": "json"
       }
     }
   }
@@ -285,7 +305,7 @@ For deploying as an HTTP API:
 
 ```bash
 # Run locally
-poetry run uvicorn src.http_server:app --reload --port 8080
+uv run uvicorn src.http_server:app --reload --port 8080
 
 # Deploy to Cloud Run
 gcloud run deploy bitbucket-mcp-service \
@@ -299,7 +319,7 @@ gcloud run deploy bitbucket-mcp-service \
 ### Requirements
 
 - Python 3.11+
-- [Poetry](https://python-poetry.org/) for dependency management
+- [uv](https://docs.astral.sh/uv/) for dependency management
 - [PyPI account](https://pypi.org/account/register/) for publishing
 
 ### Setup
@@ -307,17 +327,17 @@ gcloud run deploy bitbucket-mcp-service \
 ```bash
 git clone git@bitbucket.org:simplekyc/bitbucket-mcp.git
 cd bitbucket-mcp
-poetry install
+uv sync
 ```
 
 ### Running Locally
 
 ```bash
 # MCP server (stdio mode)
-poetry run python -m src.server
+uv run python -m src.server
 
 # HTTP server
-poetry run uvicorn src.http_server:app --reload --port 8080
+uv run uvicorn src.http_server:app --reload --port 8080
 ```
 
 ### Publishing to PyPI
@@ -325,14 +345,14 @@ poetry run uvicorn src.http_server:app --reload --port 8080
 1. **Get a PyPI API Token**:
    - Go to https://pypi.org/manage/account/token/
    - Create a token with scope "Entire account" (first time) or project-specific
-   - Configure Poetry: `poetry config pypi-token.pypi pypi-YOUR_TOKEN`
+   - Set environment variable: `export UV_PUBLISH_TOKEN=pypi-YOUR_TOKEN`
 
 2. **Bump version** in `pyproject.toml`
 
 3. **Build and publish**:
    ```bash
-   poetry build
-   poetry publish
+   uv build
+   uv publish
    ```
 
 4. **Tag the release**:
