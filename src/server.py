@@ -9,12 +9,17 @@ Usage:
 
     # Or via poetry script
     bitbucket-mcp
+
+Output format configuration:
+    Set OUTPUT_FORMAT=toon for ~30-40% token savings (TOON format)
+    Default is JSON for maximum compatibility
 """
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
 from src.bitbucket_client import get_client
+from src.formatter import formatted
 from src.models import (
     BranchRestriction,
     BranchSummary,
@@ -49,6 +54,7 @@ mcp = FastMCP("bitbucket")
 
 
 @mcp.tool()
+@formatted
 def get_repository(repo_slug: str) -> dict:
     """Get information about a Bitbucket repository.
 
@@ -68,6 +74,7 @@ def get_repository(repo_slug: str) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def create_repository(
     repo_slug: str,
     project_key: Optional[str] = None,
@@ -101,6 +108,7 @@ def create_repository(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def delete_repository(repo_slug: str) -> dict:
     """Delete a Bitbucket repository.
 
@@ -118,6 +126,7 @@ def delete_repository(repo_slug: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_repositories(
     project_key: Optional[str] = None,
     search: Optional[str] = None,
@@ -163,6 +172,7 @@ def list_repositories(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def create_pull_request(
     repo_slug: str,
     title: str,
@@ -202,6 +212,7 @@ def create_pull_request(
 
 
 @mcp.tool()
+@formatted
 def get_pull_request(repo_slug: str, pr_id: int) -> dict:
     """Get information about a pull request.
 
@@ -221,6 +232,7 @@ def get_pull_request(repo_slug: str, pr_id: int) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_pull_requests(
     repo_slug: str,
     state: str = "OPEN",
@@ -248,6 +260,7 @@ def list_pull_requests(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def merge_pull_request(
     repo_slug: str,
     pr_id: int,
@@ -288,6 +301,7 @@ def merge_pull_request(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def trigger_pipeline(
     repo_slug: str,
     branch: str = "main",
@@ -317,6 +331,7 @@ def trigger_pipeline(
 
 
 @mcp.tool()
+@formatted
 def get_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
     """Get status of a pipeline run.
 
@@ -336,6 +351,7 @@ def get_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_pipelines(repo_slug: str, limit: int = 10) -> dict:
     """List recent pipeline runs for a repository.
 
@@ -354,6 +370,7 @@ def list_pipelines(repo_slug: str, limit: int = 10) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_pipeline_logs(
     repo_slug: str,
     pipeline_uuid: str,
@@ -391,6 +408,7 @@ def get_pipeline_logs(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
     """Stop a running pipeline.
 
@@ -413,6 +431,7 @@ def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_projects(limit: int = 50) -> dict:
     """List projects in the workspace.
 
@@ -430,6 +449,7 @@ def list_projects(limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_project(project_key: str) -> dict:
     """Get information about a specific project.
 
@@ -452,6 +472,7 @@ def get_project(project_key: str) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def update_repository(
     repo_slug: str,
     project_key: Optional[str] = None,
@@ -495,6 +516,7 @@ def update_repository(
 
 
 @mcp.tool()
+@formatted
 def list_branches(repo_slug: str, limit: int = 50) -> dict:
     """List branches in a repository.
 
@@ -513,6 +535,7 @@ def list_branches(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_branch(repo_slug: str, branch_name: str) -> dict:
     """Get information about a specific branch.
 
@@ -544,6 +567,7 @@ def get_branch(repo_slug: str, branch_name: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_commits(
     repo_slug: str,
     branch: Optional[str] = None,
@@ -569,6 +593,7 @@ def list_commits(
 
 
 @mcp.tool()
+@formatted
 def get_commit(repo_slug: str, commit: str) -> dict:
     """Get detailed information about a specific commit.
 
@@ -588,6 +613,7 @@ def get_commit(repo_slug: str, commit: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def compare_commits(repo_slug: str, base: str, head: str) -> dict:
     """Compare two commits or branches and see files changed.
 
@@ -622,6 +648,7 @@ def compare_commits(repo_slug: str, base: str, head: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_commit_statuses(
     repo_slug: str,
     commit: str,
@@ -647,6 +674,7 @@ def get_commit_statuses(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def create_commit_status(
     repo_slug: str,
     commit: str,
@@ -694,6 +722,7 @@ def create_commit_status(
 
 
 @mcp.tool()
+@formatted
 def list_pr_comments(
     repo_slug: str,
     pr_id: int,
@@ -719,6 +748,7 @@ def list_pr_comments(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def add_pr_comment(
     repo_slug: str,
     pr_id: int,
@@ -760,6 +790,7 @@ def add_pr_comment(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def approve_pr(repo_slug: str, pr_id: int) -> dict:
     """Approve a pull request.
 
@@ -780,6 +811,7 @@ def approve_pr(repo_slug: str, pr_id: int) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def unapprove_pr(repo_slug: str, pr_id: int) -> dict:
     """Remove your approval from a pull request.
 
@@ -797,6 +829,7 @@ def unapprove_pr(repo_slug: str, pr_id: int) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def request_changes_pr(repo_slug: str, pr_id: int) -> dict:
     """Request changes on a pull request.
 
@@ -817,6 +850,7 @@ def request_changes_pr(repo_slug: str, pr_id: int) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def decline_pr(repo_slug: str, pr_id: int) -> dict:
     """Decline (close without merging) a pull request.
 
@@ -837,6 +871,7 @@ def decline_pr(repo_slug: str, pr_id: int) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def get_pr_diff(repo_slug: str, pr_id: int) -> dict:
     """Get the diff of a pull request.
 
@@ -867,6 +902,7 @@ def get_pr_diff(repo_slug: str, pr_id: int) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_environments(repo_slug: str, limit: int = 20) -> dict:
     """List deployment environments for a repository.
 
@@ -885,6 +921,7 @@ def list_environments(repo_slug: str, limit: int = 20) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_environment(repo_slug: str, environment_uuid: str) -> dict:
     """Get details about a specific deployment environment.
 
@@ -911,6 +948,7 @@ def get_environment(repo_slug: str, environment_uuid: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_deployment_history(
     repo_slug: str,
     environment_uuid: str,
@@ -939,6 +977,7 @@ def list_deployment_history(
 
 
 @mcp.tool()
+@formatted
 def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
     """List webhooks configured for a repository.
 
@@ -958,6 +997,7 @@ def list_webhooks(repo_slug: str, limit: int = 50) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def create_webhook(
     repo_slug: str,
     url: str,
@@ -998,6 +1038,7 @@ def create_webhook(
 
 
 @mcp.tool()
+@formatted
 def get_webhook(repo_slug: str, webhook_uuid: str) -> dict:
     """Get details about a specific webhook.
 
@@ -1018,6 +1059,7 @@ def get_webhook(repo_slug: str, webhook_uuid: str) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
     """Delete a webhook.
 
@@ -1037,6 +1079,7 @@ def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_tags(repo_slug: str, limit: int = 50) -> dict:
     """List tags in a repository.
 
@@ -1056,6 +1099,7 @@ def list_tags(repo_slug: str, limit: int = 50) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def create_tag(
     repo_slug: str,
     name: str,
@@ -1089,6 +1133,7 @@ def create_tag(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def delete_tag(repo_slug: str, tag_name: str) -> dict:
     """Delete a tag from a repository.
 
@@ -1108,6 +1153,7 @@ def delete_tag(repo_slug: str, tag_name: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
     """List branch restrictions (protection rules) in a repository.
 
@@ -1127,6 +1173,7 @@ def list_branch_restrictions(repo_slug: str, limit: int = 50) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def create_branch_restriction(
     repo_slug: str,
     kind: str,
@@ -1174,6 +1221,7 @@ def create_branch_restriction(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def delete_branch_restriction(repo_slug: str, restriction_id: int) -> dict:
     """Delete a branch restriction.
 
@@ -1193,6 +1241,7 @@ def delete_branch_restriction(repo_slug: str, restriction_id: int) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_file_content(
     repo_slug: str,
     path: str,
@@ -1224,6 +1273,7 @@ def get_file_content(
 
 
 @mcp.tool()
+@formatted
 def list_directory(
     repo_slug: str,
     path: str = "",
@@ -1257,6 +1307,7 @@ def list_directory(
 
 
 @mcp.tool()
+@formatted
 def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
     """List user permissions for a repository.
 
@@ -1275,6 +1326,7 @@ def list_user_permissions(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_user_permission(repo_slug: str, selected_user: str) -> dict:
     """Get a specific user's permission for a repository.
 
@@ -1295,6 +1347,7 @@ def get_user_permission(repo_slug: str, selected_user: str) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def update_user_permission(
     repo_slug: str,
     selected_user: str,
@@ -1320,6 +1373,7 @@ def update_user_permission(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def delete_user_permission(repo_slug: str, selected_user: str) -> dict:
     """Remove a user's explicit permission from a repository.
 
@@ -1339,6 +1393,7 @@ def delete_user_permission(repo_slug: str, selected_user: str) -> dict:
 
 
 @mcp.tool()
+@formatted
 def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
     """List group permissions for a repository.
 
@@ -1357,6 +1412,7 @@ def list_group_permissions(repo_slug: str, limit: int = 50) -> dict:
 
 
 @mcp.tool()
+@formatted
 def get_group_permission(repo_slug: str, group_slug: str) -> dict:
     """Get a specific group's permission for a repository.
 
@@ -1377,6 +1433,7 @@ def get_group_permission(repo_slug: str, group_slug: str) -> dict:
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def update_group_permission(
     repo_slug: str,
     group_slug: str,
@@ -1402,6 +1459,7 @@ def update_group_permission(
 
 @mcp.tool()
 @handle_bitbucket_error
+@formatted
 def delete_group_permission(repo_slug: str, group_slug: str) -> dict:
     """Remove a group's explicit permission from a repository.
 
