@@ -65,6 +65,8 @@ class Settings(BaseSettings):
         BITBUCKET_EMAIL: Account email for Basic Auth
         BITBUCKET_API_TOKEN: Repository access token
         OUTPUT_FORMAT: Output format (json or toon)
+        API_TIMEOUT: Default API request timeout in seconds (default: 30)
+        MAX_RETRIES: Maximum retry attempts for rate-limited requests (default: 3)
     """
 
     model_config = SettingsConfigDict(
@@ -82,11 +84,27 @@ class Settings(BaseSettings):
     # Output format configuration with validation
     output_format: Literal["json", "toon"] = "json"
 
+    # API behavior configuration
+    api_timeout: int = 30  # seconds
+    max_retries: int = 3
+
     @field_validator("output_format", mode="before")
     @classmethod
     def lowercase_output_format(cls, v: str) -> str:
         """Normalize output format to lowercase."""
         return v.lower() if isinstance(v, str) else v
+
+    @field_validator("api_timeout", mode="after")
+    @classmethod
+    def validate_timeout(cls, v: int) -> int:
+        """Ensure timeout is reasonable (1-300 seconds)."""
+        return max(1, min(v, 300))
+
+    @field_validator("max_retries", mode="after")
+    @classmethod
+    def validate_retries(cls, v: int) -> int:
+        """Ensure retries is reasonable (0-10)."""
+        return max(0, min(v, 10))
 
 
 @lru_cache

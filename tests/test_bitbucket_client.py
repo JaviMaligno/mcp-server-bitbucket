@@ -357,3 +357,59 @@ class TestRepoPath:
         """Should work with pipeline paths."""
         path = client._repo_path("my-repo", "pipelines", "{uuid}", "steps", "{step-uuid}", "log")
         assert path == "repositories/test-workspace/my-repo/pipelines/{uuid}/steps/{step-uuid}/log"
+
+
+class TestRateLimiting:
+    """Tests for rate limiting and retry behavior."""
+
+    @respx.mock
+    def test_retries_on_429(self, client, mocker):
+        """Should retry on 429 with exponential backoff."""
+        # Mock time.sleep to avoid actual delays
+        mocker.patch("src.bitbucket_client.time.sleep")
+
+        # First two calls return 429, third returns 200
+        route = respx.get("https://api.bitbucket.org/2.0/repositories/test-workspace").mock(
+            side_effect=[
+                Response(429, headers={"Retry-After": "1"}),
+                Response(429),
+                Response(200, json={"values": [{"name": "repo1"}]}),
+            ]
+        )
+
+        result = client.list_repositories()
+
+        assert len(result) == 1
+        assert route.call_count == 3
+
+    @respx.mock
+    def test_raises_after_max_retries(self, client, mocker):
+        """Should raise BitbucketError after max retries exhausted."""
+        mocker.patch("src.bitbucket_client.time.sleep")
+
+        # All calls return 429
+        respx.get("https://api.bitbucket.org/2.0/repositories/test-workspace").mock(
+            return_value=Response(429)
+        )
+
+        with pytest.raises(BitbucketError, match="Rate limited after"):
+            client.list_repositories()
+
+    @respx.mock
+    def test_request_text_retries_on_429(self, client, mocker):
+        """Should retry text requests on 429."""
+        mocker.patch("src.bitbucket_client.time.sleep")
+
+        route = respx.get(
+            "https://api.bitbucket.org/2.0/repositories/test-workspace/test-repo/src/main/README.md"
+        ).mock(
+            side_effect=[
+                Response(429),
+                Response(200, text="# README"),
+            ]
+        )
+
+        result = client._request_text("repositories/test-workspace/test-repo/src/main/README.md")
+
+        assert result == "# README"
+        assert route.call_count == 2

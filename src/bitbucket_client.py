@@ -11,6 +11,7 @@ Provides all Bitbucket API operations needed by the MCP tools:
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 import httpx
@@ -28,17 +29,24 @@ class BitbucketClient:
     """Client for Bitbucket API operations.
 
     Uses connection pooling for better performance when making
-    multiple requests.
+    multiple requests. Includes automatic retry with exponential
+    backoff for rate-limited requests (HTTP 429).
+
+    Configuration via environment variables:
+        API_TIMEOUT: Request timeout in seconds (default: 30, max: 300)
+        MAX_RETRIES: Max retry attempts for rate limiting (default: 3, max: 10)
     """
 
     BASE_URL = "https://api.bitbucket.org/2.0"
-    DEFAULT_TIMEOUT = 30
+    INITIAL_BACKOFF = 1.0  # seconds
 
     def __init__(
         self,
         workspace: Optional[str] = None,
         email: Optional[str] = None,
         api_token: Optional[str] = None,
+        timeout: Optional[int] = None,
+        max_retries: Optional[int] = None,
     ):
         """Initialize Bitbucket client.
 
@@ -46,6 +54,8 @@ class BitbucketClient:
             workspace: Bitbucket workspace (default from settings)
             email: Bitbucket email for auth (default from settings)
             api_token: Bitbucket access token (default from settings)
+            timeout: Request timeout in seconds (default from settings)
+            max_retries: Max retry attempts for rate limiting (default from settings)
         """
         settings = get_settings()
 
@@ -55,6 +65,10 @@ class BitbucketClient:
         token = api_token or settings.bitbucket_api_token
         self.api_token = token.get_secret_value() if hasattr(token, "get_secret_value") else token
 
+        # Configurable timeout and retries
+        self.timeout = timeout if timeout is not None else settings.api_timeout
+        self.max_retries = max_retries if max_retries is not None else settings.max_retries
+
         # Connection pooling - reuse HTTP client for multiple requests
         self._client: Optional[httpx.Client] = None
 
@@ -62,7 +76,7 @@ class BitbucketClient:
         """Get or create the HTTP client with connection pooling."""
         if self._client is None:
             self._client = httpx.Client(
-                timeout=self.DEFAULT_TIMEOUT,
+                timeout=self.timeout,
                 auth=(self.email, self.api_token),
                 follow_redirects=True,
             )
@@ -111,7 +125,9 @@ class BitbucketClient:
         params: Optional[dict] = None,
         timeout: Optional[int] = None,
     ) -> Optional[dict]:
-        """Make an API request using connection pooling.
+        """Make an API request using connection pooling with retry logic.
+
+        Automatically retries on rate limiting (HTTP 429) with exponential backoff.
 
         Args:
             method: HTTP method
@@ -124,28 +140,56 @@ class BitbucketClient:
             Response JSON or None for 204/404
         """
         client = self._get_http_client()
-        r = client.request(
-            method,
-            self._url(path),
-            json=json,
-            params=params,
-            headers={"Content-Type": "application/json"} if json else None,
-            timeout=timeout or self.DEFAULT_TIMEOUT,
-        )
+        backoff = self.INITIAL_BACKOFF
 
-        if r.status_code == 404:
-            return None
-        if r.status_code in (200, 201, 202):
-            return r.json() if r.content else {}
-        if r.status_code == 204:
-            return {}
+        for attempt in range(self.max_retries + 1):
+            r = client.request(
+                method,
+                self._url(path),
+                json=json,
+                params=params,
+                headers={"Content-Type": "application/json"} if json else None,
+                timeout=timeout or self.timeout,
+            )
 
-        # Truncate error response to avoid huge exception messages
-        error_text = r.text[:500] if len(r.text) > 500 else r.text
-        raise BitbucketError(
-            f"API error {r.status_code}: {error_text}\n"
-            f"Method: {method} {path}"
-        )
+            if r.status_code == 404:
+                return None
+            if r.status_code in (200, 201, 202):
+                return r.json() if r.content else {}
+            if r.status_code == 204:
+                return {}
+
+            # Rate limiting - retry with exponential backoff
+            if r.status_code == 429:
+                if attempt < self.max_retries:
+                    # Check Retry-After header for server-suggested wait time
+                    retry_after = r.headers.get("Retry-After")
+                    if retry_after:
+                        try:
+                            wait_time = float(retry_after)
+                        except ValueError:
+                            wait_time = backoff
+                    else:
+                        wait_time = backoff
+
+                    time.sleep(wait_time)
+                    backoff *= 2  # Exponential backoff
+                    continue
+                else:
+                    raise BitbucketError(
+                        f"Rate limited after {self.max_retries} retries. "
+                        f"Method: {method} {path}"
+                    )
+
+            # Truncate error response to avoid huge exception messages
+            error_text = r.text[:500] if len(r.text) > 500 else r.text
+            raise BitbucketError(
+                f"API error {r.status_code}: {error_text}\n"
+                f"Method: {method} {path}"
+            )
+
+        # Should not reach here, but satisfy type checker
+        raise BitbucketError(f"Unexpected error in request: {method} {path}")
 
     def _paginated_list(
         self,
@@ -178,7 +222,7 @@ class BitbucketClient:
         """Make an API request that returns plain text using connection pooling.
 
         Used for endpoints that return text content like logs, diffs, and files.
-        Follows redirects automatically.
+        Follows redirects automatically. Includes retry logic for rate limiting.
 
         Args:
             path: API path (without base URL)
@@ -188,16 +232,31 @@ class BitbucketClient:
             Response text or None for 404
         """
         client = self._get_http_client()
-        r = client.get(
-            self._url(path),
-            timeout=timeout or self.DEFAULT_TIMEOUT,
-        )
-        if r.status_code == 200:
-            return r.text
-        elif r.status_code == 404:
-            return None
-        else:
-            raise BitbucketError(f"Request failed: {r.status_code}")
+        backoff = self.INITIAL_BACKOFF
+
+        for attempt in range(self.max_retries + 1):
+            r = client.get(
+                self._url(path),
+                timeout=timeout or self.timeout,
+            )
+
+            if r.status_code == 200:
+                return r.text
+            elif r.status_code == 404:
+                return None
+            elif r.status_code == 429:
+                if attempt < self.max_retries:
+                    retry_after = r.headers.get("Retry-After")
+                    wait_time = float(retry_after) if retry_after else backoff
+                    time.sleep(wait_time)
+                    backoff *= 2
+                    continue
+                else:
+                    raise BitbucketError(f"Rate limited after {self.max_retries} retries")
+            else:
+                raise BitbucketError(f"Request failed: {r.status_code}")
+
+        raise BitbucketError(f"Unexpected error in request: GET {path}")
 
     def _require_result(
         self,
