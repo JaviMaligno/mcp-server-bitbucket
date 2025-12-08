@@ -75,6 +75,12 @@ TOOLS = {
     "list_pipelines": mcp_server.list_pipelines,
     "get_pipeline_logs": mcp_server.get_pipeline_logs,
     "stop_pipeline": mcp_server.stop_pipeline,
+    # Pipeline Variables
+    "list_pipeline_variables": mcp_server.list_pipeline_variables,
+    "get_pipeline_variable": mcp_server.get_pipeline_variable,
+    "create_pipeline_variable": mcp_server.create_pipeline_variable,
+    "update_pipeline_variable": mcp_server.update_pipeline_variable,
+    "delete_pipeline_variable": mcp_server.delete_pipeline_variable,
     # Branches
     "list_branches": mcp_server.list_branches,
     "get_branch": mcp_server.get_branch,

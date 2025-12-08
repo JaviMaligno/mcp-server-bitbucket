@@ -17,6 +17,9 @@ MCP server for Bitbucket API operations. Works with Claude Code, Claude Desktop,
 - **Branch Restrictions**: list, create, delete branch protection rules
 - **Source Browsing**: read files, list directories without cloning
 - **Repository Permissions**: manage user and group permissions
+- **Pipeline Variables**: manage CI/CD environment variables
+- **MCP Prompts**: reusable workflow templates (code review, release notes, etc.)
+- **MCP Resources**: browsable workspace data
 
 ## Quick Start
 
@@ -34,7 +37,7 @@ claude mcp add bitbucket -s user \
 
 **[Full Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
-## Available Tools (53 total)
+## Available Tools (58 total)
 
 ### Repositories
 | Tool | Description |
@@ -104,6 +107,15 @@ claude mcp add bitbucket -s user \
 | `trigger_pipeline` | Trigger a pipeline run |
 | `stop_pipeline` | Stop a running pipeline |
 
+### Pipeline Variables
+| Tool | Description |
+|------|-------------|
+| `list_pipeline_variables` | List pipeline variables for a repo |
+| `get_pipeline_variable` | Get variable details |
+| `create_pipeline_variable` | Create a new pipeline variable |
+| `update_pipeline_variable` | Update variable value |
+| `delete_pipeline_variable` | Delete a pipeline variable |
+
 ### Deployments
 | Tool | Description |
 |------|-------------|
@@ -136,6 +148,29 @@ claude mcp add bitbucket -s user \
 |------|-------------|
 | `list_projects` | List projects in workspace |
 | `get_project` | Get project details |
+
+## MCP Prompts
+
+Reusable workflow templates that guide Claude through common tasks:
+
+| Prompt | Description |
+|--------|-------------|
+| `code_review` | Comprehensive PR code review |
+| `release_notes` | Generate changelog between versions |
+| `pipeline_debug` | Debug failed CI/CD pipelines |
+| `repo_summary` | Complete repository status overview |
+
+## MCP Resources
+
+Browsable workspace data as markdown:
+
+| Resource URI | Description |
+|--------------|-------------|
+| `bitbucket://repositories` | List all repos in workspace |
+| `bitbucket://repositories/{repo}` | Repository details |
+| `bitbucket://repositories/{repo}/branches` | Branch list |
+| `bitbucket://repositories/{repo}/pull-requests` | Open PRs |
+| `bitbucket://projects` | List all projects |
 
 ## Example Usage
 

@@ -35,6 +35,7 @@ from src.models import (
     PipelineDetail,
     PipelineStep,
     PipelineSummary,
+    PipelineVariableSummary,
     ProjectDetail,
     ProjectSummary,
     PullRequestDetail,
@@ -478,6 +479,127 @@ def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
         "uuid": result.get("uuid"),
         "state": result.get("state", {}).get("name"),
     }
+
+
+# ==================== PIPELINE VARIABLE TOOLS ====================
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def list_pipeline_variables(repo_slug: str, limit: int = 50) -> dict:
+    """List pipeline variables for a repository.
+
+    Args:
+        repo_slug: Repository slug
+        limit: Maximum number of results (default: 50)
+
+    Returns:
+        List of pipeline variables with key, secured status, and value (if not secured)
+    """
+    client = get_client()
+    variables = client.list_pipeline_variables(repo_slug, limit=validate_limit(limit))
+    return {
+        "variables": [
+            PipelineVariableSummary.from_api(v).model_dump() for v in variables
+        ],
+    }
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def get_pipeline_variable(repo_slug: str, variable_uuid: str) -> dict:
+    """Get details about a specific pipeline variable.
+
+    Args:
+        repo_slug: Repository slug
+        variable_uuid: Variable UUID (from list_pipeline_variables)
+
+    Returns:
+        Variable details including key, secured status, and value (if not secured)
+    """
+    client = get_client()
+    result = client.get_pipeline_variable(repo_slug, variable_uuid)
+    if not result:
+        return not_found_response("Pipeline variable", variable_uuid)
+
+    return PipelineVariableSummary.from_api(result).model_dump()
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def create_pipeline_variable(
+    repo_slug: str,
+    key: str,
+    value: str,
+    secured: bool = False,
+) -> dict:
+    """Create a pipeline variable.
+
+    Args:
+        repo_slug: Repository slug
+        key: Variable name (e.g., "PYPI_TOKEN", "AWS_SECRET_KEY")
+        value: Variable value
+        secured: Whether to encrypt the value (default: False).
+                 Secured variables cannot be read back from the API.
+
+    Returns:
+        Created variable info with UUID
+    """
+    client = get_client()
+    result = client.create_pipeline_variable(repo_slug, key, value, secured)
+    return {
+        "uuid": result.get("uuid"),
+        "key": result.get("key"),
+        "secured": result.get("secured"),
+    }
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def update_pipeline_variable(
+    repo_slug: str,
+    variable_uuid: str,
+    value: str,
+) -> dict:
+    """Update a pipeline variable's value.
+
+    Args:
+        repo_slug: Repository slug
+        variable_uuid: Variable UUID (from list_pipeline_variables)
+        value: New variable value
+
+    Returns:
+        Updated variable info
+    """
+    client = get_client()
+    result = client.update_pipeline_variable(repo_slug, variable_uuid, value)
+    return {
+        "uuid": result.get("uuid"),
+        "key": result.get("key"),
+        "secured": result.get("secured"),
+    }
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def delete_pipeline_variable(repo_slug: str, variable_uuid: str) -> dict:
+    """Delete a pipeline variable.
+
+    Args:
+        repo_slug: Repository slug
+        variable_uuid: Variable UUID (from list_pipeline_variables)
+
+    Returns:
+        Confirmation of deletion
+    """
+    client = get_client()
+    client.delete_pipeline_variable(repo_slug, variable_uuid)
+    return {}
 
 
 # ==================== PROJECT TOOLS ====================

@@ -641,6 +641,114 @@ class BitbucketClient:
         # Return updated pipeline state
         return self.get_pipeline(repo_slug, pipeline_uuid) or {"stopped": True}
 
+    # ==================== PIPELINE VARIABLES ====================
+
+    def list_pipeline_variables(
+        self,
+        repo_slug: str,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List pipeline variables for a repository.
+
+        Args:
+            repo_slug: Repository slug
+            limit: Maximum results to return
+
+        Returns:
+            List of pipeline variable info dicts
+        """
+        return self._paginated_list(
+            self._repo_path(repo_slug, "pipelines_config", "variables"),
+            limit=limit,
+        )
+
+    def get_pipeline_variable(
+        self, repo_slug: str, variable_uuid: str
+    ) -> Optional[dict[str, Any]]:
+        """Get a specific pipeline variable.
+
+        Args:
+            repo_slug: Repository slug
+            variable_uuid: Variable UUID
+
+        Returns:
+            Variable info or None if not found
+        """
+        variable_uuid = ensure_uuid_braces(variable_uuid)
+        return self._request(
+            "GET",
+            self._repo_path(repo_slug, "pipelines_config", "variables", variable_uuid),
+        )
+
+    def create_pipeline_variable(
+        self,
+        repo_slug: str,
+        key: str,
+        value: str,
+        secured: bool = False,
+    ) -> dict[str, Any]:
+        """Create a pipeline variable.
+
+        Args:
+            repo_slug: Repository slug
+            key: Variable name (e.g., "PYPI_TOKEN")
+            value: Variable value
+            secured: Whether to encrypt the value (default: False)
+
+        Returns:
+            Created variable info
+        """
+        payload = {"key": key, "value": value, "secured": secured}
+        result = self._request(
+            "POST",
+            self._repo_path(repo_slug, "pipelines_config", "variables") + "/",
+            json=payload,
+        )
+        return self._require_result(result, "create pipeline variable")
+
+    def update_pipeline_variable(
+        self,
+        repo_slug: str,
+        variable_uuid: str,
+        value: str,
+    ) -> dict[str, Any]:
+        """Update a pipeline variable's value.
+
+        Args:
+            repo_slug: Repository slug
+            variable_uuid: Variable UUID
+            value: New variable value
+
+        Returns:
+            Updated variable info
+        """
+        variable_uuid = ensure_uuid_braces(variable_uuid)
+        result = self._request(
+            "PUT",
+            self._repo_path(repo_slug, "pipelines_config", "variables", variable_uuid),
+            json={"value": value},
+        )
+        return self._require_result(result, "update pipeline variable")
+
+    def delete_pipeline_variable(
+        self, repo_slug: str, variable_uuid: str
+    ) -> bool:
+        """Delete a pipeline variable.
+
+        Args:
+            repo_slug: Repository slug
+            variable_uuid: Variable UUID
+
+        Returns:
+            True if deleted successfully
+        """
+        variable_uuid = ensure_uuid_braces(variable_uuid)
+        self._request(
+            "DELETE",
+            self._repo_path(repo_slug, "pipelines_config", "variables", variable_uuid),
+        )
+        return True
+
     # ==================== PROJECTS ====================
 
     def list_projects(

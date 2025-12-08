@@ -337,6 +337,24 @@ class PipelineStep(BaseModel):
         )
 
 
+class PipelineVariableSummary(BaseModel):
+    """Pipeline variable info."""
+
+    uuid: str = ""
+    key: str = ""
+    secured: bool = False
+    value: Optional[str] = None  # Only present for non-secured variables
+
+    @classmethod
+    def from_api(cls, data: dict) -> "PipelineVariableSummary":
+        return cls(
+            uuid=data.get("uuid", ""),
+            key=data.get("key", ""),
+            secured=data.get("secured", False),
+            value=data.get("value"),  # Will be None for secured variables
+        )
+
+
 # ==================== TAGS ====================
 
 
