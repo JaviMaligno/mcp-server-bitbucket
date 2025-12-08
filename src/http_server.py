@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from src.bitbucket_client import get_client, BitbucketError
 from src import server as mcp_server
+from src.__version__ import __version__
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Bitbucket MCP HTTP Server",
     description="REST API for Bitbucket operations",
-    version="0.1.0",
+    version=__version__,
 )
 
 # CORS configuration
@@ -89,7 +90,7 @@ async def health():
         return {
             "status": "healthy",
             "workspace": client.workspace,
-            "version": "0.1.0",
+            "version": __version__,
         }
     except BitbucketError as e:
         return {

@@ -51,9 +51,13 @@ from src.utils import (
     sanitize_search_term,
     truncate_hash,
 )
+from src.__version__ import __version__
 
-# Initialize FastMCP server
-mcp = FastMCP("bitbucket")
+# Initialize FastMCP server with version in instructions
+mcp = FastMCP(
+    "bitbucket",
+    instructions=f"Bitbucket MCP Server v{__version__} - Tools for Bitbucket API operations",
+)
 
 
 # ==================== VALIDATION HELPERS ====================
