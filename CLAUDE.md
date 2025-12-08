@@ -122,11 +122,11 @@ claude mcp add bitbucket -s user \
 
 This allows testing changes immediately without publishing.
 
-### 3. CI/CD Pipeline (Bitbucket Pipelines)
+### 3. CI/CD Pipeline (GitHub Actions)
 
-The project uses Bitbucket Pipelines for automated testing and publishing:
+The project uses GitHub Actions for automated testing and publishing:
 
-- **Every push**: Runs tests with coverage
+- **Every push to main**: Runs tests with coverage
 - **Pull requests**: Runs full test suite
 - **Tags (`v*`)**: Tests, builds, and publishes to PyPI automatically
 

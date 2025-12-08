@@ -35,7 +35,7 @@ claude mcp add bitbucket -s user \
   -- mcp-server-bitbucket
 ```
 
-**[Full Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
+**[Full Installation Guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
 ## Available Tools (58 total)
 
@@ -265,8 +265,8 @@ pipx install mcp-server-bitbucket
 ### From Source
 
 ```bash
-git clone git@bitbucket.org:simplekyc/bitbucket-mcp.git
-cd bitbucket-mcp
+git clone https://github.com/JaviMaligno/mcp-server-bitbucket.git
+cd mcp-server-bitbucket
 uv sync
 ```
 
@@ -332,7 +332,7 @@ Add to `~/.claude.json`:
    - **Pipelines**: Read, Write
 5. Copy the token immediately
 
-See the [full installation guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md) for detailed instructions.
+See the [full installation guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md) for detailed instructions.
 
 ## HTTP Server (Cloud Run)
 
@@ -360,8 +360,8 @@ gcloud run deploy bitbucket-mcp-service \
 ### Setup
 
 ```bash
-git clone git@bitbucket.org:simplekyc/bitbucket-mcp.git
-cd bitbucket-mcp
+git clone https://github.com/JaviMaligno/mcp-server-bitbucket.git
+cd mcp-server-bitbucket
 uv sync
 ```
 
@@ -377,9 +377,9 @@ uv run uvicorn src.http_server:app --reload --port 8080
 
 ### CI/CD Pipeline
 
-The project uses Bitbucket Pipelines for automated testing and publishing:
+The project uses GitHub Actions for automated testing and publishing:
 
-- **Every push**: Runs tests with coverage
+- **Every push to main**: Runs tests with coverage
 - **Pull requests**: Runs full test suite
 - **Tags (`v*`)**: Tests, builds, and publishes to PyPI
 
@@ -413,8 +413,8 @@ If you need to publish manually:
 ## Links
 
 - [PyPI Package](https://pypi.org/project/mcp-server-bitbucket/)
-- [Installation Guide](https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md)
-- [Bitbucket Repository](https://bitbucket.org/simplekyc/bitbucket-mcp)
+- [Installation Guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md)
+- [GitHub Repository](https://github.com/JaviMaligno/mcp-server-bitbucket)
 
 ## License
 

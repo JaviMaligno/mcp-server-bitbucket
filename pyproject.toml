@@ -24,9 +24,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://bitbucket.org/simplekyc/bitbucket-mcp"
-Documentation = "https://bitbucket.org/simplekyc/bitbucket-mcp/src/main/docs/INSTALLATION.md"
-"Bug Tracker" = "https://bitbucket.org/simplekyc/bitbucket-mcp/issues"
+Homepage = "https://github.com/JaviMaligno/mcp-server-bitbucket"
+Documentation = "https://github.com/JaviMaligno/mcp-server-bitbucket#readme"
+"Bug Tracker" = "https://github.com/JaviMaligno/mcp-server-bitbucket/issues"
+Repository = "https://github.com/JaviMaligno/mcp-server-bitbucket"
 
 [project.scripts]
 mcp-server-bitbucket = "src.server:main"

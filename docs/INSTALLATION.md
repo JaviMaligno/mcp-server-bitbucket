@@ -25,9 +25,9 @@ pip install mcp-server-bitbucket
 ### Option C: From Source
 
 ```bash
-git clone https://github.com/simplekyc/bitbucket-mcp.git
-cd bitbucket-mcp
-poetry install
+git clone https://github.com/JaviMaligno/mcp-server-bitbucket.git
+cd mcp-server-bitbucket
+uv sync
 ```
 
 ## Step 2: Create Bitbucket API Token
@@ -432,5 +432,5 @@ pipx uninstall mcp-server-bitbucket
 
 ## Support
 
-- Bitbucket Issues: https://bitbucket.org/simplekyc/bitbucket-mcp/issues
+- GitHub Issues: https://github.com/JaviMaligno/mcp-server-bitbucket/issues
 - PyPI: https://pypi.org/project/mcp-server-bitbucket/
