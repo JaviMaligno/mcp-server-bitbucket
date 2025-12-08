@@ -1,0 +1,73 @@
+image: python:3.12
+
+definitions:
+  caches:
+    uv: ~/.cache/uv
+
+pipelines:
+  default:
+    - step:
+        name: Lint & Test
+        caches:
+          - uv
+        script:
+          - curl -LsSf https://astral.sh/uv/install.sh | sh
+          - source $HOME/.local/bin/env
+          - uv sync --dev
+          - uv run pytest -v --cov=src --cov-report=term-missing
+
+  pull-requests:
+    '**':
+      - step:
+          name: Lint & Test
+          caches:
+            - uv
+          script:
+            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - source $HOME/.local/bin/env
+            - uv sync --dev
+            - uv run pytest -v --cov=src --cov-report=term-missing
+
+  branches:
+    main:
+      - step:
+          name: Test
+          caches:
+            - uv
+          script:
+            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - source $HOME/.local/bin/env
+            - uv sync --dev
+            - uv run pytest -v --cov=src --cov-report=term-missing
+      - step:
+          name: Build Package
+          caches:
+            - uv
+          script:
+            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - source $HOME/.local/bin/env
+            - uv build
+          artifacts:
+            - dist/**
+
+  tags:
+    v*:
+      - step:
+          name: Test
+          caches:
+            - uv
+          script:
+            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - source $HOME/.local/bin/env
+            - uv sync --dev
+            - uv run pytest -v
+      - step:
+          name: Build & Publish to PyPI
+          caches:
+            - uv
+          deployment: production
+          script:
+            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - source $HOME/.local/bin/env
+            - uv build
+            - uv publish --token $PYPI_TOKEN
