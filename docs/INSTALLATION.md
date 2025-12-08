@@ -174,7 +174,7 @@ Start a Claude Code session and test:
 > List my Bitbucket repositories
 ```
 
-## Available Tools (53 total)
+## Available Tools (58 total)
 
 ### Repositories
 | Tool | Description |
@@ -243,6 +243,15 @@ Start a Claude Code session and test:
 | `get_pipeline_logs` | View pipeline logs |
 | `trigger_pipeline` | Trigger a pipeline |
 | `stop_pipeline` | Stop a pipeline |
+
+### Pipeline Variables
+| Tool | Description |
+|------|-------------|
+| `list_pipeline_variables` | List pipeline variables |
+| `get_pipeline_variable` | Get variable details |
+| `create_pipeline_variable` | Create a variable |
+| `update_pipeline_variable` | Update variable value |
+| `delete_pipeline_variable` | Delete a variable |
 
 ### Deployments
 | Tool | Description |

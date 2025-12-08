@@ -375,25 +375,39 @@ uv run python -m src.server
 uv run uvicorn src.http_server:app --reload --port 8080
 ```
 
-### Publishing to PyPI
+### CI/CD Pipeline
+
+The project uses Bitbucket Pipelines for automated testing and publishing:
+
+- **Every push**: Runs tests with coverage
+- **Pull requests**: Runs full test suite
+- **Tags (`v*`)**: Tests, builds, and publishes to PyPI
+
+To release a new version:
+```bash
+# 1. Bump version in pyproject.toml
+# 2. Commit changes
+git add -A && git commit -m "release: v0.x.x"
+git push origin main
+
+# 3. Create and push tag (triggers PyPI publish)
+git tag v0.x.x
+git push origin v0.x.x
+```
+
+### Manual Publishing
+
+If you need to publish manually:
 
 1. **Get a PyPI API Token**:
    - Go to https://pypi.org/manage/account/token/
    - Create a token with scope "Entire account" (first time) or project-specific
    - Set environment variable: `export UV_PUBLISH_TOKEN=pypi-YOUR_TOKEN`
 
-2. **Bump version** in `pyproject.toml`
-
-3. **Build and publish**:
+2. **Build and publish**:
    ```bash
    uv build
    uv publish
-   ```
-
-4. **Tag the release**:
-   ```bash
-   git tag v0.x.x
-   git push origin v0.x.x
    ```
 
 ## Links

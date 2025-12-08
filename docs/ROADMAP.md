@@ -6,7 +6,7 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ---
 
-## Estado Actual (v0.3.0) - 54 herramientas
+## Estado Actual (v0.9.0) - 58 herramientas + 4 prompts + 5 resources
 
 ### Funcionalidades Implementadas
 
@@ -15,6 +15,7 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 | **Repositorios** | `get_repository`, `create_repository`, `delete_repository`, `list_repositories`, `update_repository` | v0.1.0 |
 | **Pull Requests** | `create_pull_request`, `get_pull_request`, `list_pull_requests`, `merge_pull_request` | v0.1.0 |
 | **Pipelines** | `trigger_pipeline`, `get_pipeline`, `list_pipelines`, `get_pipeline_logs`, `stop_pipeline` | v0.1.0 |
+| **Pipeline Variables** | `list_pipeline_variables`, `get_pipeline_variable`, `create_pipeline_variable`, `update_pipeline_variable`, `delete_pipeline_variable` | v0.9.0 |
 | **Projects** | `list_projects`, `get_project` | v0.1.0 |
 | **Branches** | `list_branches`, `get_branch` | v0.1.0 |
 | **Commits** | `list_commits`, `get_commit`, `compare_commits` | v0.2.0 |
@@ -26,6 +27,25 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 | **Branch Restrictions** | `list_branch_restrictions`, `create_branch_restriction`, `delete_branch_restriction` | v0.3.0 |
 | **Source** | `get_file_content`, `list_directory` | v0.3.0 |
 | **Repository Permissions** | `list_user_permissions`, `get_user_permission`, `update_user_permission`, `delete_user_permission`, `list_group_permissions`, `get_group_permission`, `update_group_permission`, `delete_group_permission` | v0.3.0 |
+
+### MCP Prompts (v0.9.0)
+
+| Prompt | Descripción |
+|--------|-------------|
+| `code_review` | Revisión completa de PR con guía de herramientas |
+| `release_notes` | Generar changelog entre versiones |
+| `pipeline_debug` | Debug de pipelines fallidas |
+| `repo_summary` | Resumen completo del estado del repositorio |
+
+### MCP Resources (v0.9.0)
+
+| Resource URI | Descripción |
+|--------------|-------------|
+| `bitbucket://repositories` | Lista todos los repos del workspace |
+| `bitbucket://repositories/{repo}` | Detalles del repositorio |
+| `bitbucket://repositories/{repo}/branches` | Lista de branches |
+| `bitbucket://repositories/{repo}/pull-requests` | PRs abiertos |
+| `bitbucket://projects` | Lista todos los proyectos |
 
 ---
 
@@ -172,6 +192,21 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ## Historial de Releases
 
+### v0.9.0 (2025-12-08)
+- **MCP Prompts**: 4 plantillas reutilizables (`code_review`, `release_notes`, `pipeline_debug`, `repo_summary`)
+- **MCP Resources**: 5 recursos navegables (`bitbucket://repositories`, etc.)
+- **Pipeline Variables**: 5 nuevas herramientas para gestión de variables de CI/CD
+- **Versionado centralizado**: `__version__.py` con versión dinámica
+- **Bitbucket Pipelines CI**: Tests automáticos y publicación a PyPI en tags
+- 58 herramientas totales
+
+### v0.8.x (2025-12-08)
+- **Seguridad**: Sanitización de query injection, CORS restrictivo, SecretStr para tokens
+- **Robustez**: `@handle_bitbucket_error` en todas las herramientas, validación de inputs
+- **Rate Limiting**: Reintentos automáticos con backoff exponencial para HTTP 429
+- **Connection Pooling**: Reutilización de conexiones HTTP
+- **Timeouts configurables**: `API_TIMEOUT`, `MAX_RETRIES` via env vars
+
 ### v0.3.0 (2025-12-06)
 - +16 nuevas herramientas (54 total)
 - Tags: `list_tags`, `create_tag`, `delete_tag`
@@ -196,10 +231,13 @@ Este documento describe las funcionalidades del MCP de Bitbucket y el plan para 
 
 ## Métricas
 
-| Métrica | v0.1.x | v0.2.0 | v0.3.0 | v0.4.0 (objetivo) |
-|---------|--------|--------|--------|-------------------|
-| Herramientas | 18 | 38 | 54 | ~65 |
-| Cobertura API | 40% | 70% | 85% | 95% |
+| Métrica | v0.1.x | v0.2.0 | v0.3.0 | v0.8.x | v0.9.0 |
+|---------|--------|--------|--------|--------|--------|
+| Herramientas | 18 | 38 | 54 | 53 | 58 |
+| Prompts | - | - | - | - | 4 |
+| Resources | - | - | - | - | 5 |
+| Cobertura API | 40% | 70% | 85% | 85% | 90% |
+| CI/CD Pipeline | ❌ | ❌ | ❌ | ✅ | ✅ |
 
 ---
 

@@ -33,9 +33,11 @@ git tag v0.x.x && git push origin v0.x.x
 
 The codebase has a simple layered architecture:
 
-- **`src/server.py`**: FastMCP server that defines all 53 MCP tools. Each tool is a decorated function (`@mcp.tool()`) that wraps BitbucketClient methods, transforming raw API responses into cleaner dicts for LLM consumption.
+- **`src/server.py`**: FastMCP server that defines all 58 MCP tools, 4 prompts, and 5 resources. Each tool is a decorated function (`@mcp.tool()`) that wraps BitbucketClient methods, transforming raw API responses into cleaner dicts for LLM consumption.
 
-- **`src/bitbucket_client.py`**: Low-level HTTP client for Bitbucket API 2.0. Uses httpx with Basic Auth. Contains all the actual API calls organized by domain (repositories, PRs, pipelines, etc.). Exposes a singleton via `get_client()`.
+- **`src/__version__.py`**: Centralized version management. Reads version from installed package metadata.
+
+- **`src/bitbucket_client.py`**: Low-level HTTP client for Bitbucket API 2.0. Uses httpx with Basic Auth and connection pooling. Contains all the actual API calls organized by domain (repositories, PRs, pipelines, etc.). Includes automatic retry with exponential backoff for rate-limited requests (HTTP 429). Exposes a singleton via `get_client()`.
 
 - **`src/settings.py`**: Centralized configuration using pydantic-settings. Loads environment variables and `.env` files. Provides `get_settings()` for cached access to configuration.
 
@@ -51,6 +53,10 @@ The server requires three environment variables:
 - `BITBUCKET_WORKSPACE`: Bitbucket workspace slug
 - `BITBUCKET_EMAIL`: Account email for Basic Auth
 - `BITBUCKET_API_TOKEN`: Repository access token
+
+Optional configuration:
+- `API_TIMEOUT`: Request timeout in seconds (default: 30, max: 300)
+- `MAX_RETRIES`: Max retry attempts for rate limiting (default: 3, max: 10)
 
 ### Output Format (Optional)
 
@@ -116,23 +122,37 @@ claude mcp add bitbucket -s user \
 
 This allows testing changes immediately without publishing.
 
-### 3. Publishing to PyPI
+### 3. CI/CD Pipeline (Bitbucket Pipelines)
 
+The project uses Bitbucket Pipelines for automated testing and publishing:
+
+- **Every push**: Runs tests with coverage
+- **Pull requests**: Runs full test suite
+- **Tags (`v*`)**: Tests, builds, and publishes to PyPI automatically
+
+To release a new version:
 ```bash
 # 1. Bump version in pyproject.toml
+# 2. Commit and push
+git add -A && git commit -m "release: v0.x.x"
+git push origin main
 
-# 2. Build the package
-uv build
-
-# 3. Publish to PyPI (set UV_PUBLISH_TOKEN env var or use --token)
-uv publish
-
-# 4. Tag the release
+# 3. Create and push tag (triggers automatic PyPI publish)
 git tag v0.x.x
 git push origin v0.x.x
 ```
 
-### 4. Verify Published Version
+### 4. Manual Publishing (if needed)
+
+```bash
+# Build the package
+uv build
+
+# Publish to PyPI (set UV_PUBLISH_TOKEN env var or use --token)
+uv publish
+```
+
+### 5. Verify Published Version
 
 ```bash
 # Upgrade to the new version
