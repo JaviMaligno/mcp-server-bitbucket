@@ -1556,6 +1556,116 @@ def delete_group_permission(repo_slug: str, group_slug: str) -> dict:
     return {}
 
 
+# ==================== MCP PROMPTS ====================
+
+
+@mcp.prompt()
+def code_review(repo_slug: str, pr_id: int) -> str:
+    """Generate a code review prompt for a pull request.
+
+    Args:
+        repo_slug: Repository slug
+        pr_id: Pull request ID
+
+    Returns:
+        Prompt for reviewing the PR
+    """
+    return f"""Please review pull request #{pr_id} in repository '{repo_slug}'.
+
+Use the following tools to gather information:
+1. get_pull_request(repo_slug="{repo_slug}", pr_id={pr_id}) - Get PR details
+2. get_pr_diff(repo_slug="{repo_slug}", pr_id={pr_id}) - Get the code changes
+3. list_pr_comments(repo_slug="{repo_slug}", pr_id={pr_id}) - See existing comments
+
+Then provide a thorough code review covering:
+- Code quality and readability
+- Potential bugs or edge cases
+- Security concerns
+- Performance considerations
+- Suggestions for improvement
+
+If you find issues, use add_pr_comment() to leave feedback on specific lines."""
+
+
+@mcp.prompt()
+def release_notes(repo_slug: str, base_tag: str, head: str = "main") -> str:
+    """Generate release notes from commits between two refs.
+
+    Args:
+        repo_slug: Repository slug
+        base_tag: Base tag or commit (e.g., "v1.0.0")
+        head: Head ref (default: "main")
+
+    Returns:
+        Prompt for generating release notes
+    """
+    return f"""Generate release notes for repository '{repo_slug}' comparing {base_tag} to {head}.
+
+Use these tools:
+1. compare_commits(repo_slug="{repo_slug}", base="{base_tag}", head="{head}") - See changed files
+2. list_commits(repo_slug="{repo_slug}", branch="{head}", limit=50) - Get recent commits
+
+Organize the release notes into sections:
+- **New Features**: New functionality added
+- **Bug Fixes**: Issues that were resolved
+- **Improvements**: Enhancements to existing features
+- **Breaking Changes**: Changes that require user action
+
+Format as markdown suitable for a GitHub/Bitbucket release."""
+
+
+@mcp.prompt()
+def pipeline_debug(repo_slug: str) -> str:
+    """Debug a failed pipeline.
+
+    Args:
+        repo_slug: Repository slug
+
+    Returns:
+        Prompt for debugging pipeline failures
+    """
+    return f"""Help debug pipeline failures in repository '{repo_slug}'.
+
+Use these tools:
+1. list_pipelines(repo_slug="{repo_slug}", limit=5) - Get recent pipeline runs
+2. get_pipeline(repo_slug="{repo_slug}", pipeline_uuid="<uuid>") - Get pipeline details
+3. get_pipeline_logs(repo_slug="{repo_slug}", pipeline_uuid="<uuid>") - Get step list
+4. get_pipeline_logs(repo_slug="{repo_slug}", pipeline_uuid="<uuid>", step_uuid="<step>") - Get logs
+
+Analyze the failures and provide:
+- Root cause of the failure
+- Specific error messages
+- Recommended fixes
+- Commands to re-run the pipeline if appropriate"""
+
+
+@mcp.prompt()
+def repo_summary(repo_slug: str) -> str:
+    """Get a comprehensive summary of a repository.
+
+    Args:
+        repo_slug: Repository slug
+
+    Returns:
+        Prompt for summarizing repository status
+    """
+    return f"""Provide a comprehensive summary of repository '{repo_slug}'.
+
+Gather information using:
+1. get_repository(repo_slug="{repo_slug}") - Basic repo info
+2. list_branches(repo_slug="{repo_slug}", limit=10) - Active branches
+3. list_pull_requests(repo_slug="{repo_slug}", state="OPEN") - Open PRs
+4. list_pipelines(repo_slug="{repo_slug}", limit=5) - Recent CI/CD status
+5. list_commits(repo_slug="{repo_slug}", limit=10) - Recent activity
+
+Summarize:
+- Repository description and purpose
+- Current development activity
+- Open pull requests needing attention
+- CI/CD health
+- Recent contributors"""
+
+
 def main():
     """Run the MCP server."""
     mcp.run()
