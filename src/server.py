@@ -1556,6 +1556,105 @@ def delete_group_permission(repo_slug: str, group_slug: str) -> dict:
     return {}
 
 
+# ==================== MCP RESOURCES ====================
+
+
+@mcp.resource("bitbucket://repositories")
+def resource_repositories() -> str:
+    """List all repositories in the workspace.
+
+    Returns a summary of repositories for browsing.
+    """
+    client = get_client()
+    repos = client.list_repositories(limit=50)
+    lines = [f"# Repositories in {client.workspace}", ""]
+    for r in repos:
+        name = r.get("name", "unknown")
+        desc = r.get("description", "")[:50] or "No description"
+        private = "🔒" if r.get("is_private") else "🌐"
+        lines.append(f"- {private} **{name}**: {desc}")
+    return "\n".join(lines)
+
+
+@mcp.resource("bitbucket://repositories/{repo_slug}")
+def resource_repository(repo_slug: str) -> str:
+    """Get detailed information about a specific repository.
+
+    Args:
+        repo_slug: Repository slug
+    """
+    client = get_client()
+    repo = client.get_repository(repo_slug)
+    if not repo:
+        return f"Repository '{repo_slug}' not found"
+
+    lines = [
+        f"# {repo.get('name', repo_slug)}",
+        "",
+        f"**Description**: {repo.get('description') or 'No description'}",
+        f"**Private**: {'Yes' if repo.get('is_private') else 'No'}",
+        f"**Project**: {repo.get('project', {}).get('name', 'None')}",
+        f"**Main branch**: {repo.get('mainbranch', {}).get('name', 'main')}",
+        "",
+        "## Clone URLs",
+    ]
+    for clone in repo.get("links", {}).get("clone", []):
+        lines.append(f"- {clone.get('name')}: `{clone.get('href')}`")
+
+    return "\n".join(lines)
+
+
+@mcp.resource("bitbucket://repositories/{repo_slug}/branches")
+def resource_branches(repo_slug: str) -> str:
+    """List branches in a repository.
+
+    Args:
+        repo_slug: Repository slug
+    """
+    client = get_client()
+    branches = client.list_branches(repo_slug, limit=30)
+    lines = [f"# Branches in {repo_slug}", ""]
+    for b in branches:
+        name = b.get("name", "unknown")
+        commit = b.get("target", {}).get("hash", "")[:7]
+        lines.append(f"- **{name}** ({commit})")
+    return "\n".join(lines)
+
+
+@mcp.resource("bitbucket://repositories/{repo_slug}/pull-requests")
+def resource_pull_requests(repo_slug: str) -> str:
+    """List open pull requests in a repository.
+
+    Args:
+        repo_slug: Repository slug
+    """
+    client = get_client()
+    prs = client.list_pull_requests(repo_slug, state="OPEN", limit=20)
+    lines = [f"# Open Pull Requests in {repo_slug}", ""]
+    if not prs:
+        lines.append("No open pull requests")
+    for pr in prs:
+        pr_id = pr.get("id")
+        title = pr.get("title", "Untitled")
+        author = pr.get("author", {}).get("display_name", "Unknown")
+        lines.append(f"- **#{pr_id}**: {title} (by {author})")
+    return "\n".join(lines)
+
+
+@mcp.resource("bitbucket://projects")
+def resource_projects() -> str:
+    """List all projects in the workspace."""
+    client = get_client()
+    projects = client.list_projects(limit=50)
+    lines = [f"# Projects in {client.workspace}", ""]
+    for p in projects:
+        key = p.get("key", "?")
+        name = p.get("name", "Unknown")
+        desc = p.get("description", "")[:40] or "No description"
+        lines.append(f"- **{key}** - {name}: {desc}")
+    return "\n".join(lines)
+
+
 # ==================== MCP PROMPTS ====================
 
 
