@@ -15,7 +15,9 @@ uv sync
 # Run MCP server (stdio mode for Claude Desktop/Code)
 uv run python -m src.server
 
-# Run HTTP server (for Cloud Run deployment)
+# Run HTTP server (for remote deployment)
+uv run python -m src.http_server
+# Or with uvicorn for development
 uv run uvicorn src.http_server:app --reload --port 8080
 
 # Run tests
@@ -45,7 +47,7 @@ The codebase has a simple layered architecture:
 
 - **`src/models.py`**: Pydantic models for response transformation. Handles field renaming, timestamp truncation, and token optimization.
 
-- **`src/http_server.py`**: FastAPI wrapper that exposes MCP tools as REST endpoints for Cloud Run deployment. Maps tool names to functions and provides convenience routes.
+- **`src/http_server.py`**: HTTP server using MCP Streamable HTTP transport. Exposes the same MCP server over HTTP for remote deployment (Cloud Run, Docker, etc.). All tools, prompts, and resources are automatically available via the `/mcp` endpoint.
 
 ## Configuration
 
@@ -81,7 +83,8 @@ TOON is ideal for high-volume usage where token costs matter. JSON is recommende
 
 1. Add the API method to `BitbucketClient` in `src/bitbucket_client.py`
 2. Create the MCP tool wrapper in `src/server.py` using `@mcp.tool()` decorator
-3. If exposing via HTTP, add to the `TOOLS` dict in `src/http_server.py`
+
+Note: HTTP server automatically exposes all tools - no additional configuration needed.
 
 ## Development Workflow
 

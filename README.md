@@ -306,7 +306,26 @@ claude mcp add bitbucket -s user \
 | `json` (default) | Standard JSON | Maximum compatibility, debugging |
 | `toon` | [TOON format](https://toonformat.dev/) | High-volume usage, token cost optimization |
 
-### Manual Configuration
+### Cursor IDE
+
+Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "command": "mcp-server-bitbucket",
+      "env": {
+        "BITBUCKET_WORKSPACE": "your-workspace",
+        "BITBUCKET_EMAIL": "your-email@example.com",
+        "BITBUCKET_API_TOKEN": "your-api-token"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop / Manual Configuration
 
 Add to `~/.claude.json`:
 
@@ -339,19 +358,87 @@ Add to `~/.claude.json`:
 
 See the [full installation guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md) for detailed instructions.
 
-## HTTP Server (Cloud Run)
+## HTTP Server (Remote Deployment)
 
-For deploying as an HTTP API:
+Deploy the MCP server as an HTTP service for remote access from any MCP client. Uses the standard MCP Streamable HTTP transport protocol.
+
+### Running Locally
 
 ```bash
-# Run locally
+# Start HTTP server on port 8080
+uv run python -m src.http_server
+
+# Or with uvicorn for development (auto-reload)
 uv run uvicorn src.http_server:app --reload --port 8080
 
-# Deploy to Cloud Run
-gcloud run deploy bitbucket-mcp-service \
+# Custom port
+PORT=3000 uv run python -m src.http_server
+```
+
+### Deploy to Cloud Run (Google Cloud)
+
+```bash
+# Deploy with secrets
+gcloud run deploy bitbucket-mcp \
   --source . \
-  --region australia-southeast1 \
-  --set-secrets "BITBUCKET_EMAIL=bitbucket-email:latest,BITBUCKET_API_TOKEN=bitbucket-token:latest"
+  --region us-central1 \
+  --set-env-vars "BITBUCKET_WORKSPACE=your-workspace" \
+  --set-secrets "BITBUCKET_EMAIL=bitbucket-email:latest,BITBUCKET_API_TOKEN=bitbucket-token:latest" \
+  --allow-unauthenticated  # Or configure IAM for auth
+```
+
+### Deploy to Railway/Render/Fly.io
+
+Set these environment variables in your platform:
+- `BITBUCKET_WORKSPACE`: Your Bitbucket workspace slug
+- `BITBUCKET_EMAIL`: Your Bitbucket account email
+- `BITBUCKET_API_TOKEN`: Your repository access token
+- `PORT`: (usually auto-set by platform)
+
+### Docker Deployment
+
+```bash
+# Build image
+docker build -t bitbucket-mcp .
+
+# Run container
+docker run -p 8080:8080 \
+  -e BITBUCKET_WORKSPACE=your-workspace \
+  -e BITBUCKET_EMAIL=your-email \
+  -e BITBUCKET_API_TOKEN=your-token \
+  bitbucket-mcp
+```
+
+### Connecting Claude Code to Remote Server
+
+Once deployed, connect Claude Code to your remote MCP server:
+
+```bash
+# Add remote MCP server
+claude mcp add bitbucket-remote \
+  --transport streamable-http \
+  --url https://your-deployment-url.com/mcp
+
+# Or with authentication header (if required)
+claude mcp add bitbucket-remote \
+  --transport streamable-http \
+  --url https://your-deployment-url.com/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Manual Configuration for Remote Server
+
+Add to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "bitbucket-remote": {
+      "type": "streamable-http",
+      "url": "https://your-deployment-url.com/mcp"
+    }
+  }
+}
 ```
 
 ## Development

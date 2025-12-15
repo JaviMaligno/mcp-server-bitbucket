@@ -17,3 +17,7 @@ build/
 
 # Poetry
 poetry.lock
+
+.coverage
+coverage.xml
+.pytest_cache/
