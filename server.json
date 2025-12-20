@@ -1,0 +1,52 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.JaviMaligno/bitbucket",
+  "title": "Bitbucket MCP Server",
+  "description": "MCP server for Bitbucket API operations. Provides 58 tools for managing repositories, pull requests, pipelines, branches, commits, deployments, webhooks, tags, branch restrictions, source browsing, and repository permissions.",
+  "repository": {
+    "url": "https://github.com/JaviMaligno/mcp-server-bitbucket",
+    "source": "github"
+  },
+  "version": "0.10.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcp-server-bitbucket",
+      "version": "0.10.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "BITBUCKET_WORKSPACE",
+          "description": "Bitbucket workspace slug",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "BITBUCKET_EMAIL",
+          "description": "Account email for Bitbucket Basic Auth",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "BITBUCKET_API_TOKEN",
+          "description": "Repository access token from Bitbucket",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "OUTPUT_FORMAT",
+          "description": "Output format: json (default) or toon for token savings",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
+

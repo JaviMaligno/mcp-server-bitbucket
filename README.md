@@ -1,5 +1,7 @@
 # Bitbucket MCP Server
 
+<!-- mcp-name: io.github.JaviMaligno/bitbucket -->
+
 [![CI/CD](https://github.com/JaviMaligno/mcp-server-bitbucket/actions/workflows/ci.yml/badge.svg)](https://github.com/JaviMaligno/mcp-server-bitbucket/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/mcp-server-bitbucket.svg)](https://pypi.org/project/mcp-server-bitbucket/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
