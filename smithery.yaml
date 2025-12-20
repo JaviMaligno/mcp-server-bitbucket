@@ -1,0 +1,50 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+# This file configures how the MCP server is deployed and run on Smithery
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP server
+    type: object
+    properties:
+      BITBUCKET_WORKSPACE:
+        type: string
+        description: Bitbucket workspace slug (e.g., 'my-team')
+      BITBUCKET_EMAIL:
+        type: string
+        description: Account email for Bitbucket Basic Auth
+      BITBUCKET_API_TOKEN:
+        type: string
+        description: Repository access token from Bitbucket
+      OUTPUT_FORMAT:
+        type: string
+        enum:
+          - json
+          - toon
+        default: json
+        description: Output format (json for compatibility, toon for token savings)
+      API_TIMEOUT:
+        type: number
+        default: 30
+        description: Request timeout in seconds (max 300)
+      MAX_RETRIES:
+        type: number
+        default: 3
+        description: Max retry attempts for rate limiting (max 10)
+    required:
+      - BITBUCKET_WORKSPACE
+      - BITBUCKET_EMAIL
+      - BITBUCKET_API_TOKEN
+  commandFunction: |
+    (config) => ({
+      command: "mcp-server-bitbucket",
+      env: {
+        BITBUCKET_WORKSPACE: config.BITBUCKET_WORKSPACE,
+        BITBUCKET_EMAIL: config.BITBUCKET_EMAIL,
+        BITBUCKET_API_TOKEN: config.BITBUCKET_API_TOKEN,
+        OUTPUT_FORMAT: config.OUTPUT_FORMAT || "json",
+        API_TIMEOUT: config.API_TIMEOUT ? String(config.API_TIMEOUT) : "30",
+        MAX_RETRIES: config.MAX_RETRIES ? String(config.MAX_RETRIES) : "3"
+      }
+    })
+
