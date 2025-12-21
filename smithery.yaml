@@ -7,7 +7,7 @@ build:
   dockerBuildPath: typescript
 
 startCommand:
-  type: http
+  type: stdio
   configSchema:
     type: object
     properties:
@@ -32,9 +32,10 @@ startCommand:
       - BITBUCKET_WORKSPACE
       - BITBUCKET_EMAIL
       - BITBUCKET_API_TOKEN
-  configFunction: |
+  commandFunction: |
     (config) => ({
-      port: 8080,
+      command: 'node',
+      args: ['dist/index.js'],
       env: {
         BITBUCKET_WORKSPACE: config.BITBUCKET_WORKSPACE,
         BITBUCKET_EMAIL: config.BITBUCKET_EMAIL,
@@ -43,3 +44,7 @@ startCommand:
         MAX_RETRIES: config.MAX_RETRIES ? String(config.MAX_RETRIES) : "3"
       }
     })
+  exampleConfig:
+    BITBUCKET_WORKSPACE: my-workspace
+    BITBUCKET_EMAIL: user@example.com
+    BITBUCKET_API_TOKEN: your-api-token
