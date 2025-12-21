@@ -1,15 +1,6 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
-# ============================================================================
-# NOTE: This repository contains both Python and TypeScript versions.
-# 
-# For Smithery deployment, use the TypeScript version located at:
-#   typescript/smithery.yaml
-# 
-# When adding this server in Smithery, specify the path: typescript/
-# ============================================================================
-
-# This root configuration is for backwards compatibility with existing deployments
-# pointing to the Python version. New deployments should use typescript/smithery.yaml
+# This file configures how the MCP server is deployed and run on Smithery
+# TypeScript version - located in typescript/ directory
 
 startCommand:
   type: stdio
@@ -40,7 +31,7 @@ startCommand:
   commandFunction: |
     (config) => ({
       command: 'node',
-      args: ['typescript/dist/index.js'],
+      args: ['dist/index.js'],
       env: {
         BITBUCKET_WORKSPACE: config.BITBUCKET_WORKSPACE,
         BITBUCKET_EMAIL: config.BITBUCKET_EMAIL,
@@ -53,3 +44,4 @@ startCommand:
     BITBUCKET_WORKSPACE: my-workspace
     BITBUCKET_EMAIL: user@example.com
     BITBUCKET_API_TOKEN: your-api-token
+
