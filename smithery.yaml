@@ -1,9 +1,10 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 # This file configures how the MCP server is deployed and run on Smithery
+# NOTE: This configuration now points to the TypeScript version
 
 build:
-  dockerfile: Dockerfile
-  dockerBuildPath: .
+  dockerfile: typescript/Dockerfile
+  dockerBuildPath: typescript
 
 startCommand:
   type: stdio
@@ -19,13 +20,6 @@ startCommand:
       BITBUCKET_API_TOKEN:
         type: string
         description: Repository access token from Bitbucket
-      OUTPUT_FORMAT:
-        type: string
-        enum:
-          - json
-          - toon
-        default: json
-        description: Output format (json for compatibility, toon for token savings)
       API_TIMEOUT:
         type: number
         default: 30
@@ -40,12 +34,12 @@ startCommand:
       - BITBUCKET_API_TOKEN
   commandFunction: |
     (config) => ({
-      command: "mcp-server-bitbucket",
+      command: "node",
+      args: ["dist/index.js"],
       env: {
         BITBUCKET_WORKSPACE: config.BITBUCKET_WORKSPACE,
         BITBUCKET_EMAIL: config.BITBUCKET_EMAIL,
         BITBUCKET_API_TOKEN: config.BITBUCKET_API_TOKEN,
-        OUTPUT_FORMAT: config.OUTPUT_FORMAT || "json",
         API_TIMEOUT: config.API_TIMEOUT ? String(config.API_TIMEOUT) : "30",
         MAX_RETRIES: config.MAX_RETRIES ? String(config.MAX_RETRIES) : "3"
       }

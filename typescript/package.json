@@ -1,0 +1,57 @@
+{
+  "name": "mcp-server-bitbucket",
+  "version": "0.10.0",
+  "description": "MCP server for Bitbucket API operations",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "mcp-server-bitbucket": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "dev": "tsup src/index.ts --format esm --watch",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "bitbucket",
+    "api",
+    "claude",
+    "ai",
+    "model-context-protocol"
+  ],
+  "author": "Javier Aguilar",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JaviMaligno/mcp-server-bitbucket"
+  },
+  "homepage": "https://github.com/JaviMaligno/mcp-server-bitbucket#readme",
+  "bugs": {
+    "url": "https://github.com/JaviMaligno/mcp-server-bitbucket/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "axios": "^1.7.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0"
+  }
+}
+

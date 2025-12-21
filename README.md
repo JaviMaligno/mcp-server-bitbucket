@@ -4,10 +4,21 @@
 
 [![CI/CD](https://github.com/JaviMaligno/mcp-server-bitbucket/actions/workflows/ci.yml/badge.svg)](https://github.com/JaviMaligno/mcp-server-bitbucket/actions/workflows/ci.yml)
 [![PyPI version](https://badge.fury.io/py/mcp-server-bitbucket.svg)](https://pypi.org/project/mcp-server-bitbucket/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![npm version](https://badge.fury.io/js/mcp-server-bitbucket.svg)](https://www.npmjs.com/package/mcp-server-bitbucket)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-MCP server for Bitbucket API operations. Works with Claude Code, Claude Desktop, and any MCP-compatible client.
+MCP server for Bitbucket API operations. Works with Claude Code, Claude Desktop, Cursor, and any MCP-compatible client.
+
+## Language Versions
+
+This repository contains both **TypeScript** and **Python** implementations:
+
+| Version | Directory | Status | Installation |
+|---------|-----------|--------|--------------|
+| **TypeScript** | `/typescript` | ✅ Recommended (Smithery) | `npm install -g mcp-server-bitbucket` |
+| Python | `/python` | ✅ Stable | `pipx install mcp-server-bitbucket` |
+
+> **Note**: The TypeScript version is used for Smithery deployments. Both versions provide identical functionality.
 
 ## Features
 
@@ -30,8 +41,20 @@ MCP server for Bitbucket API operations. Works with Claude Code, Claude Desktop,
 
 ## Quick Start
 
+### TypeScript (Recommended for Smithery)
+
 ```bash
-# Install
+# Install globally
+npm install -g mcp-server-bitbucket
+
+# Or run directly with npx
+npx mcp-server-bitbucket
+```
+
+### Python
+
+```bash
+# Install with pipx
 pipx install mcp-server-bitbucket
 
 # Configure Claude Code
@@ -44,279 +67,46 @@ claude mcp add bitbucket -s user \
 
 **[Full Installation Guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
-## Available Tools (58 total)
-
-### Repositories
-| Tool | Description |
-|------|-------------|
-| `list_repositories` | List and search repositories (supports fuzzy name matching) |
-| `get_repository` | Get repository details |
-| `create_repository` | Create a new repository |
-| `delete_repository` | Delete a repository |
-| `update_repository` | Update repo settings (project, visibility, description, name) |
-
-### Branches & Commits
-| Tool | Description |
-|------|-------------|
-| `list_branches` | List branches in a repo |
-| `get_branch` | Get branch details |
-| `list_commits` | List commits (filter by branch or file path) |
-| `get_commit` | Get commit details |
-| `compare_commits` | Compare two commits/branches (diff stats) |
-
-### Tags
-| Tool | Description |
-|------|-------------|
-| `list_tags` | List tags in a repo |
-| `create_tag` | Create a new tag |
-| `delete_tag` | Delete a tag |
-
-### Branch Restrictions
-| Tool | Description |
-|------|-------------|
-| `list_branch_restrictions` | List branch protection rules |
-| `create_branch_restriction` | Create branch protection rule |
-| `delete_branch_restriction` | Delete branch protection rule |
-
-### Source (File Browsing)
-| Tool | Description |
-|------|-------------|
-| `get_file_content` | Read file contents without cloning |
-| `list_directory` | List directory contents |
-
-### Commit Statuses (CI/CD)
-| Tool | Description |
-|------|-------------|
-| `get_commit_statuses` | Get build/CI statuses for a commit |
-| `create_commit_status` | Report build status from external CI |
-
-### Pull Requests
-| Tool | Description |
-|------|-------------|
-| `list_pull_requests` | List PRs (open, merged, etc.) |
-| `get_pull_request` | Get PR details |
-| `create_pull_request` | Create a new PR |
-| `merge_pull_request` | Merge a PR |
-| `approve_pr` | Approve a PR |
-| `unapprove_pr` | Remove approval from a PR |
-| `request_changes_pr` | Request changes on a PR |
-| `decline_pr` | Decline (close) a PR |
-| `list_pr_comments` | List comments on a PR |
-| `add_pr_comment` | Add comment to a PR (general or inline) |
-| `get_pr_diff` | Get the diff of a PR |
-
-### Pipelines
-| Tool | Description |
-|------|-------------|
-| `list_pipelines` | List recent pipeline runs |
-| `get_pipeline` | Get pipeline status |
-| `get_pipeline_logs` | View pipeline logs |
-| `trigger_pipeline` | Trigger a pipeline run |
-| `stop_pipeline` | Stop a running pipeline |
-
-### Pipeline Variables
-| Tool | Description |
-|------|-------------|
-| `list_pipeline_variables` | List pipeline variables for a repo |
-| `get_pipeline_variable` | Get variable details |
-| `create_pipeline_variable` | Create a new pipeline variable |
-| `update_pipeline_variable` | Update variable value |
-| `delete_pipeline_variable` | Delete a pipeline variable |
-
-### Deployments
-| Tool | Description |
-|------|-------------|
-| `list_environments` | List deployment environments (test, staging, prod) |
-| `get_environment` | Get environment details |
-| `list_deployment_history` | Get deployment history for an environment |
-
-### Webhooks
-| Tool | Description |
-|------|-------------|
-| `list_webhooks` | List configured webhooks |
-| `create_webhook` | Create a new webhook |
-| `get_webhook` | Get webhook details |
-| `delete_webhook` | Delete a webhook |
-
-### Repository Permissions
-| Tool | Description |
-|------|-------------|
-| `list_user_permissions` | List user permissions for a repo |
-| `get_user_permission` | Get specific user's permission |
-| `update_user_permission` | Add/update user permission |
-| `delete_user_permission` | Remove user permission |
-| `list_group_permissions` | List group permissions for a repo |
-| `get_group_permission` | Get specific group's permission |
-| `update_group_permission` | Add/update group permission |
-| `delete_group_permission` | Remove group permission |
-
-### Projects
-| Tool | Description |
-|------|-------------|
-| `list_projects` | List projects in workspace |
-| `get_project` | Get project details |
-
-## MCP Prompts
-
-Reusable workflow templates that guide Claude through common tasks:
-
-| Prompt | Description |
-|--------|-------------|
-| `code_review` | Comprehensive PR code review |
-| `release_notes` | Generate changelog between versions |
-| `pipeline_debug` | Debug failed CI/CD pipelines |
-| `repo_summary` | Complete repository status overview |
-
-## MCP Resources
-
-Browsable workspace data as markdown:
-
-| Resource URI | Description |
-|--------------|-------------|
-| `bitbucket://repositories` | List all repos in workspace |
-| `bitbucket://repositories/{repo}` | Repository details |
-| `bitbucket://repositories/{repo}/branches` | Branch list |
-| `bitbucket://repositories/{repo}/pull-requests` | Open PRs |
-| `bitbucket://projects` | List all projects |
-
-## Example Usage
-
-Once configured, ask Claude to:
-
-**Repositories & Branches:**
-- "List all repositories in my workspace"
-- "Search for repositories with 'api' in the name"
-- "Show me the last 10 commits on the main branch"
-- "Compare develop branch with main"
-
-**Pull Requests & Code Review:**
-- "Show me open pull requests in my-repo"
-- "Create a PR from feature-branch to main"
-- "Approve PR #42"
-- "Add a comment to PR #15 saying 'Looks good!'"
-- "Show me the diff for PR #42"
-- "Merge PR #42 using squash strategy"
-
-**Pipelines & CI/CD:**
-- "Trigger a pipeline on the develop branch"
-- "What's the status of the latest pipeline?"
-- "Get the build status for commit abc123"
-
-**Deployments:**
-- "List deployment environments for my-repo"
-- "Show deployment history for production"
-
-**Webhooks:**
-- "List webhooks configured for my-repo"
-- "Create a webhook for push events"
-
-**Tags:**
-- "List all tags in my-repo"
-- "Create a tag v1.0.0 on the main branch"
-- "Delete the old-release tag"
-
-**Branch Protection:**
-- "List branch restrictions for my-repo"
-- "Require 2 approvals to merge to main"
-- "Prevent force push to production branches"
-
-**Source Browsing:**
-- "Show me the contents of src/main.py"
-- "List files in the root directory"
-- "Read the README.md from the develop branch"
-
-**Repository Permissions:**
-- "List user permissions for my-repo"
-- "Give user@example.com write access to my-repo"
-- "List group permissions for my-repo"
-- "Grant admin access to the DevOps group"
-
-### Repository Search
-
-The `list_repositories` tool supports flexible searching:
-
-```python
-# Simple fuzzy search by name
-list_repositories(search="api")  # Finds repos with "api" in name
-
-# Advanced Bitbucket query syntax
-list_repositories(query='name ~ "test" AND is_private = true')
-
-# Filter by project
-list_repositories(project_key="MYPROJECT")
-```
-
-Query syntax supports: `name ~ "term"`, `is_private = true/false`, `AND`, `OR`
-
-## Installation Options
-
-### From PyPI (Recommended)
-
-```bash
-pipx install mcp-server-bitbucket
-# or
-pip install mcp-server-bitbucket
-```
-
-### Updating
-
-```bash
-# Upgrade to latest version
-pipx upgrade mcp-server-bitbucket
-
-# If upgrade doesn't pick up the new version, reinstall:
-pipx uninstall mcp-server-bitbucket
-pipx install mcp-server-bitbucket
-```
-
-### From Source
-
-```bash
-git clone https://github.com/JaviMaligno/mcp-server-bitbucket.git
-cd mcp-server-bitbucket
-uv sync
-```
-
 ## Configuration
 
-### Claude Code CLI (Recommended)
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BITBUCKET_WORKSPACE` | ✅ | Bitbucket workspace slug |
+| `BITBUCKET_EMAIL` | ✅ | Account email for Basic Auth |
+| `BITBUCKET_API_TOKEN` | ✅ | Repository access token |
+| `API_TIMEOUT` | | Request timeout in seconds (default: 30) |
+| `MAX_RETRIES` | | Max retry attempts for rate limiting (default: 3) |
+
+### Claude Code CLI
 
 ```bash
+# TypeScript version
+claude mcp add bitbucket -s user \
+  -e BITBUCKET_WORKSPACE=your-workspace \
+  -e BITBUCKET_EMAIL=your-email@example.com \
+  -e BITBUCKET_API_TOKEN=your-api-token \
+  -- npx mcp-server-bitbucket
+
+# Python version
 claude mcp add bitbucket -s user \
   -e BITBUCKET_WORKSPACE=your-workspace \
   -e BITBUCKET_EMAIL=your-email@example.com \
   -e BITBUCKET_API_TOKEN=your-api-token \
   -- mcp-server-bitbucket
 ```
-
-### Output Format (Optional)
-
-Set `OUTPUT_FORMAT` to optimize token usage:
-
-```bash
-# TOON format for ~30-40% token savings
-claude mcp add bitbucket -s user \
-  -e OUTPUT_FORMAT=toon \
-  -e BITBUCKET_WORKSPACE=your-workspace \
-  -e BITBUCKET_EMAIL=your-email@example.com \
-  -e BITBUCKET_API_TOKEN=your-api-token \
-  -- mcp-server-bitbucket
-```
-
-| Format | Description | Use case |
-|--------|-------------|----------|
-| `json` (default) | Standard JSON | Maximum compatibility, debugging |
-| `toon` | [TOON format](https://toonformat.dev/) | High-volume usage, token cost optimization |
 
 ### Cursor IDE
 
-Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
+Add to `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "bitbucket": {
-      "command": "mcp-server-bitbucket",
+      "command": "npx",
+      "args": ["mcp-server-bitbucket"],
       "env": {
         "BITBUCKET_WORKSPACE": "your-workspace",
         "BITBUCKET_EMAIL": "your-email@example.com",
@@ -327,24 +117,108 @@ Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
 }
 ```
 
-### Claude Desktop / Manual Configuration
+## Available Tools (58 total)
 
-Add to `~/.claude.json`:
+### Repositories
+| Tool | Description |
+|------|-------------|
+| `list_repositories` | List and search repositories |
+| `get_repository` | Get repository details |
+| `create_repository` | Create a new repository |
+| `delete_repository` | Delete a repository |
+| `update_repository` | Update repo settings |
 
-```json
-{
-  "mcpServers": {
-    "bitbucket": {
-      "command": "mcp-server-bitbucket",
-      "env": {
-        "BITBUCKET_WORKSPACE": "your-workspace",
-        "BITBUCKET_EMAIL": "your-email@example.com",
-        "BITBUCKET_API_TOKEN": "your-api-token",
-        "OUTPUT_FORMAT": "json"
-      }
-    }
-  }
-}
+### Pull Requests
+| Tool | Description |
+|------|-------------|
+| `list_pull_requests` | List PRs |
+| `get_pull_request` | Get PR details |
+| `create_pull_request` | Create a new PR |
+| `merge_pull_request` | Merge a PR |
+| `approve_pr` | Approve a PR |
+| `unapprove_pr` | Remove approval |
+| `request_changes_pr` | Request changes |
+| `decline_pr` | Decline a PR |
+| `list_pr_comments` | List comments |
+| `add_pr_comment` | Add comment |
+| `get_pr_diff` | Get the diff |
+
+### Pipelines
+| Tool | Description |
+|------|-------------|
+| `list_pipelines` | List recent runs |
+| `get_pipeline` | Get status |
+| `get_pipeline_logs` | View logs |
+| `trigger_pipeline` | Trigger a run |
+| `stop_pipeline` | Stop pipeline |
+| `list_pipeline_variables` | List variables |
+| `get_pipeline_variable` | Get variable |
+| `create_pipeline_variable` | Create variable |
+| `update_pipeline_variable` | Update variable |
+| `delete_pipeline_variable` | Delete variable |
+
+### Branches, Commits, Tags
+| Tool | Description |
+|------|-------------|
+| `list_branches` | List branches |
+| `get_branch` | Get branch details |
+| `list_commits` | List commits |
+| `get_commit` | Get commit details |
+| `compare_commits` | Compare branches |
+| `get_commit_statuses` | Get build statuses |
+| `create_commit_status` | Report CI status |
+| `list_tags` | List tags |
+| `create_tag` | Create a tag |
+| `delete_tag` | Delete a tag |
+
+### And more...
+- Deployments: `list_environments`, `get_environment`, `list_deployment_history`
+- Webhooks: `list_webhooks`, `create_webhook`, `get_webhook`, `delete_webhook`
+- Branch Restrictions: `list_branch_restrictions`, `create_branch_restriction`, `delete_branch_restriction`
+- Source Browsing: `get_file_content`, `list_directory`
+- Permissions: User and group permission management (8 tools)
+- Projects: `list_projects`, `get_project`
+
+## MCP Prompts
+
+Reusable workflow templates:
+
+| Prompt | Description |
+|--------|-------------|
+| `code_review` | Comprehensive PR code review |
+| `release_notes` | Generate changelog between versions |
+| `pipeline_debug` | Debug failed CI/CD pipelines |
+| `repo_summary` | Complete repository status overview |
+
+## MCP Resources
+
+Browsable workspace data:
+
+| Resource URI | Description |
+|--------------|-------------|
+| `bitbucket://repositories` | List all repos |
+| `bitbucket://repositories/{repo}` | Repository details |
+| `bitbucket://repositories/{repo}/branches` | Branch list |
+| `bitbucket://repositories/{repo}/pull-requests` | Open PRs |
+| `bitbucket://projects` | List all projects |
+
+## Development
+
+### TypeScript
+
+```bash
+cd typescript
+npm install
+npm run build
+npm run dev  # Watch mode
+```
+
+### Python
+
+```bash
+cd python
+uv sync
+uv run python -m src.server
 ```
 
 ## Creating a Bitbucket API Token
@@ -357,158 +231,6 @@ Add to `~/.claude.json`:
    - **Pull requests**: Read, Write
    - **Pipelines**: Read, Write
 5. Copy the token immediately
-
-See the [full installation guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md) for detailed instructions.
-
-## HTTP Server (Remote Deployment)
-
-Deploy the MCP server as an HTTP service for remote access from any MCP client. Uses the standard MCP Streamable HTTP transport protocol.
-
-### Running Locally
-
-```bash
-# Start HTTP server on port 8080
-uv run python -m src.http_server
-
-# Or with uvicorn for development (auto-reload)
-uv run uvicorn src.http_server:app --reload --port 8080
-
-# Custom port
-PORT=3000 uv run python -m src.http_server
-```
-
-### Deploy to Cloud Run (Google Cloud)
-
-```bash
-# Deploy with secrets
-gcloud run deploy bitbucket-mcp \
-  --source . \
-  --region us-central1 \
-  --set-env-vars "BITBUCKET_WORKSPACE=your-workspace" \
-  --set-secrets "BITBUCKET_EMAIL=bitbucket-email:latest,BITBUCKET_API_TOKEN=bitbucket-token:latest" \
-  --allow-unauthenticated  # Or configure IAM for auth
-```
-
-### Deploy to Railway/Render/Fly.io
-
-Set these environment variables in your platform:
-- `BITBUCKET_WORKSPACE`: Your Bitbucket workspace slug
-- `BITBUCKET_EMAIL`: Your Bitbucket account email
-- `BITBUCKET_API_TOKEN`: Your repository access token
-- `PORT`: (usually auto-set by platform)
-
-### Docker Deployment
-
-```bash
-# Build image
-docker build -t bitbucket-mcp .
-
-# Run container
-docker run -p 8080:8080 \
-  -e BITBUCKET_WORKSPACE=your-workspace \
-  -e BITBUCKET_EMAIL=your-email \
-  -e BITBUCKET_API_TOKEN=your-token \
-  bitbucket-mcp
-```
-
-### Connecting Claude Code to Remote Server
-
-Once deployed, connect Claude Code to your remote MCP server:
-
-```bash
-# Add remote MCP server
-claude mcp add bitbucket-remote \
-  --transport streamable-http \
-  --url https://your-deployment-url.com/mcp
-
-# Or with authentication header (if required)
-claude mcp add bitbucket-remote \
-  --transport streamable-http \
-  --url https://your-deployment-url.com/mcp \
-  --header "Authorization: Bearer YOUR_TOKEN"
-```
-
-### Manual Configuration for Remote Server
-
-Add to `~/.claude.json`:
-
-```json
-{
-  "mcpServers": {
-    "bitbucket-remote": {
-      "type": "streamable-http",
-      "url": "https://your-deployment-url.com/mcp"
-    }
-  }
-}
-```
-
-## Development
-
-### Requirements
-
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) for dependency management
-- [PyPI account](https://pypi.org/account/register/) for publishing
-
-### Setup
-
-```bash
-git clone https://github.com/JaviMaligno/mcp-server-bitbucket.git
-cd mcp-server-bitbucket
-uv sync
-```
-
-### Running Locally
-
-```bash
-# MCP server (stdio mode)
-uv run python -m src.server
-
-# HTTP server
-uv run uvicorn src.http_server:app --reload --port 8080
-```
-
-### CI/CD Pipeline
-
-The project uses GitHub Actions for automated testing and publishing:
-
-- **Every push to main**: Runs tests with coverage
-- **Pull requests**: Runs full test suite
-- **Tags (`v*`)**: Tests, builds, and publishes to PyPI
-
-To release a new version:
-```bash
-# 1. Bump version in pyproject.toml
-# 2. Commit changes
-git add -A && git commit -m "release: v0.x.x"
-git push origin main
-
-# 3. Create and push tag (triggers PyPI publish)
-git tag v0.x.x
-git push origin v0.x.x
-```
-
-### Manual Publishing
-
-If you need to publish manually:
-
-1. **Get a PyPI API Token**:
-   - Go to https://pypi.org/manage/account/token/
-   - Create a token with scope "Entire account" (first time) or project-specific
-   - Set environment variable: `export UV_PUBLISH_TOKEN=pypi-YOUR_TOKEN`
-
-2. **Build and publish**:
-   ```bash
-   uv build
-   uv publish
-   ```
-
-## Links
-
-- [PyPI Package](https://pypi.org/project/mcp-server-bitbucket/)
-- [Installation Guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md)
-- [GitHub Repository](https://github.com/JaviMaligno/mcp-server-bitbucket)
 
 ## License
 

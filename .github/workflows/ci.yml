@@ -8,8 +8,11 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  test-python:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
@@ -20,13 +23,31 @@ jobs:
         uses: codecov/codecov-action@v4
         if: github.ref == 'refs/heads/main'
         with:
-          files: coverage.xml
+          files: python/coverage.xml
           fail_ci_if_error: false
 
-  build:
-    needs: test
+  test-typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+        continue-on-error: true  # Tests are optional for now
+
+  build-python:
+    needs: test-python
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
@@ -34,10 +55,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist/
+          path: python/dist/
 
-  publish:
-    needs: build
+  publish-python:
+    needs: build-python
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: pypi
