@@ -144,6 +144,21 @@ export interface BitbucketPipelineVariable {
   secured: boolean;
 }
 
+// ==================== PIPELINE TRIGGER OPTIONS ====================
+
+export interface PipelineTriggerVariable {
+  key: string;
+  value: string;
+  secured?: boolean;
+}
+
+export interface TriggerPipelineOptions {
+  branch?: string;
+  commit?: string;
+  customPipeline?: string;
+  variables?: PipelineTriggerVariable[] | Record<string, string>;
+}
+
 export interface BitbucketEnvironment {
   uuid: string;
   name: string;

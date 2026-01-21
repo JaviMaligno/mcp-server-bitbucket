@@ -355,23 +355,50 @@ def merge_pull_request(
 @formatted
 def trigger_pipeline(
     repo_slug: str,
-    branch: str = "main",
-    variables: Optional[dict] = None,
+    branch: Optional[str] = None,
+    commit: Optional[str] = None,
+    custom_pipeline: Optional[str] = None,
+    variables: Optional[list] = None,
 ) -> dict:
     """Trigger a pipeline run on a repository.
 
+    Supports custom pipelines (from 'custom:' section in bitbucket-pipelines.yml)
+    and commit-based triggers.
+
     Args:
         repo_slug: Repository slug
-        branch: Branch to run pipeline on (default: main)
-        variables: Custom pipeline variables as key-value pairs (optional)
+        branch: Branch to run pipeline on (default: main). Mutually exclusive with commit.
+        commit: Commit hash to run pipeline on. Mutually exclusive with branch.
+        custom_pipeline: Name of custom pipeline from 'custom:' section
+                        (e.g., "deploy-staging", "dry-run")
+        variables: Pipeline variables as list of {key, value, secured?} objects.
+                  Example: [{"key": "ENV", "value": "prod", "secured": false}]
 
     Returns:
         Pipeline run info with uuid and state
+
+    Examples:
+        # Default branch pipeline
+        trigger_pipeline(repo_slug="my-repo")
+
+        # Custom pipeline
+        trigger_pipeline(repo_slug="my-repo", custom_pipeline="deploy-staging")
+
+        # Custom pipeline on specific commit
+        trigger_pipeline(repo_slug="my-repo", commit="abc123", custom_pipeline="dry-run")
+
+        # With secured variables
+        trigger_pipeline(repo_slug="my-repo", variables=[
+            {"key": "ENV", "value": "prod"},
+            {"key": "SECRET", "value": "xxx", "secured": true}
+        ])
     """
     client = get_client()
     result = client.trigger_pipeline(
         repo_slug=repo_slug,
         branch=branch,
+        commit=commit,
+        custom_pipeline=custom_pipeline,
         variables=variables,
     )
     return {

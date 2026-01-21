@@ -398,27 +398,77 @@ var BitbucketClient = class _BitbucketClient {
     return await this.requestText(this.repoPath(repoSlug, "pullrequests", String(prId), "diff")) || "";
   }
   // ==================== PIPELINES ====================
+  /**
+   * Build the pipeline target object based on options.
+   * Supports branch triggers, commit triggers, and custom pipelines.
+   */
+  buildPipelineTarget(options) {
+    if (options.branch && options.commit) {
+      throw new BitbucketError("Cannot specify both branch and commit - they are mutually exclusive");
+    }
+    if (options.commit) {
+      const target2 = {
+        type: "pipeline_commit_target",
+        commit: { hash: options.commit }
+      };
+      if (options.customPipeline) {
+        target2.selector = {
+          type: "custom",
+          pattern: options.customPipeline
+        };
+      }
+      return target2;
+    }
+    const target = {
+      type: "pipeline_ref_target",
+      ref_type: "branch",
+      ref_name: options.branch || "main"
+    };
+    if (options.customPipeline) {
+      target.selector = {
+        type: "custom",
+        pattern: options.customPipeline
+      };
+    }
+    return target;
+  }
+  /**
+   * Normalize pipeline variables to the array format expected by the API.
+   * Supports both array format (with secured flag) and simple object format.
+   */
+  normalizePipelineVariables(variables) {
+    if (!variables) {
+      return void 0;
+    }
+    if (Array.isArray(variables)) {
+      return variables.map((v) => ({
+        key: v.key,
+        value: v.value,
+        ...v.secured !== void 0 && { secured: v.secured }
+      }));
+    }
+    return Object.entries(variables).map(([key, value]) => ({
+      key,
+      value
+    }));
+  }
   async triggerPipeline(repoSlug, options = {}) {
     const payload = {
-      target: {
-        ref_type: "branch",
-        type: "pipeline_ref_target",
-        ref_name: options.branch || "main"
-      }
+      target: this.buildPipelineTarget(options)
     };
-    if (options.variables) {
-      payload.variables = Object.entries(options.variables).map(([key, value]) => ({
-        key,
-        value
-      }));
+    const normalizedVariables = this.normalizePipelineVariables(options.variables);
+    if (normalizedVariables && normalizedVariables.length > 0) {
+      payload.variables = normalizedVariables;
     }
     const result = await this.request(
       "POST",
       `${this.repoPath(repoSlug, "pipelines")}/`,
       payload
     );
+    const targetDesc = options.commit ? `commit ${options.commit}` : options.branch || "main";
+    const pipelineDesc = options.customPipeline ? `custom:${options.customPipeline}` : "default";
     if (!result) {
-      throw new BitbucketError(`Failed to trigger pipeline on ${options.branch || "main"}`);
+      throw new BitbucketError(`Failed to trigger ${pipelineDesc} pipeline on ${targetDesc}`);
     }
     return result;
   }
@@ -1273,13 +1323,27 @@ var handlers2 = {
 var definitions3 = [
   {
     name: "trigger_pipeline",
-    description: "Trigger a pipeline run on a repository.",
+    description: 'Trigger a pipeline run. Supports custom pipelines (from "custom:" section in bitbucket-pipelines.yml) and commit-based triggers.',
     inputSchema: {
       type: "object",
       properties: {
         repo_slug: { type: "string", description: "Repository slug" },
-        branch: { type: "string", description: "Branch to run pipeline on (default: main)", default: "main" },
-        variables: { type: "object", description: "Custom pipeline variables as key-value pairs" }
+        branch: { type: "string", description: "Branch to run pipeline on (default: main). Mutually exclusive with commit.", default: "main" },
+        commit: { type: "string", description: "Commit hash to run pipeline on. Mutually exclusive with branch." },
+        custom_pipeline: { type: "string", description: 'Name of custom pipeline from "custom:" section (e.g., "deploy-staging", "dry-run")' },
+        variables: {
+          type: "array",
+          description: "Pipeline variables. Can be array of {key, value, secured?} or simple {key: value} object for backwards compatibility.",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string", description: "Variable name" },
+              value: { type: "string", description: "Variable value" },
+              secured: { type: "boolean", description: "Whether to mark as secured (encrypted)", default: false }
+            },
+            required: ["key", "value"]
+          }
+        }
       },
       required: ["repo_slug"]
     }
@@ -1401,7 +1465,9 @@ var handlers3 = {
   trigger_pipeline: async (args) => {
     const client = getClient();
     const result = await client.triggerPipeline(args.repo_slug, {
-      branch: args.branch || "main",
+      branch: args.branch,
+      commit: args.commit,
+      customPipeline: args.custom_pipeline,
       variables: args.variables
     });
     return {

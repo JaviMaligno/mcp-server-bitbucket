@@ -9,13 +9,27 @@ import { validateLimit, notFoundResponse } from '../utils.js';
 export const definitions: Tool[] = [
   {
     name: 'trigger_pipeline',
-    description: 'Trigger a pipeline run on a repository.',
+    description: 'Trigger a pipeline run. Supports custom pipelines (from "custom:" section in bitbucket-pipelines.yml) and commit-based triggers.',
     inputSchema: {
       type: 'object',
       properties: {
         repo_slug: { type: 'string', description: 'Repository slug' },
-        branch: { type: 'string', description: 'Branch to run pipeline on (default: main)', default: 'main' },
-        variables: { type: 'object', description: 'Custom pipeline variables as key-value pairs' },
+        branch: { type: 'string', description: 'Branch to run pipeline on (default: main). Mutually exclusive with commit.', default: 'main' },
+        commit: { type: 'string', description: 'Commit hash to run pipeline on. Mutually exclusive with branch.' },
+        custom_pipeline: { type: 'string', description: 'Name of custom pipeline from "custom:" section (e.g., "deploy-staging", "dry-run")' },
+        variables: {
+          type: 'array',
+          description: 'Pipeline variables. Can be array of {key, value, secured?} or simple {key: value} object for backwards compatibility.',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'Variable name' },
+              value: { type: 'string', description: 'Variable value' },
+              secured: { type: 'boolean', description: 'Whether to mark as secured (encrypted)', default: false },
+            },
+            required: ['key', 'value'],
+          },
+        },
       },
       required: ['repo_slug'],
     },
@@ -138,8 +152,10 @@ export const handlers: Record<string, (args: Record<string, unknown>) => Promise
   trigger_pipeline: async (args) => {
     const client = getClient();
     const result = await client.triggerPipeline(args.repo_slug as string, {
-      branch: args.branch as string || 'main',
-      variables: args.variables as Record<string, string>,
+      branch: args.branch as string | undefined,
+      commit: args.commit as string | undefined,
+      customPipeline: args.custom_pipeline as string | undefined,
+      variables: args.variables as { key: string; value: string; secured?: boolean }[] | Record<string, string> | undefined,
     });
     return {
       uuid: result.uuid,

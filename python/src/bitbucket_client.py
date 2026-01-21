@@ -505,40 +505,167 @@ class BitbucketClient:
 
     # ==================== PIPELINES ====================
 
+    def _build_pipeline_target(
+        self,
+        branch: Optional[str] = None,
+        commit: Optional[str] = None,
+        custom_pipeline: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Build the pipeline target object.
+
+        Supports branch triggers, commit triggers, and custom pipelines.
+
+        Args:
+            branch: Branch name (mutually exclusive with commit)
+            commit: Commit hash (mutually exclusive with branch)
+            custom_pipeline: Name of custom pipeline from 'custom:' section
+
+        Returns:
+            Target dict for the pipeline API
+
+        Raises:
+            BitbucketError: If both branch and commit are specified
+        """
+        # Validate mutual exclusivity
+        if branch and commit:
+            raise BitbucketError(
+                "Cannot specify both branch and commit - they are mutually exclusive"
+            )
+
+        # Build target based on trigger type
+        if commit:
+            # Commit-based trigger
+            target: dict[str, Any] = {
+                "type": "pipeline_commit_target",
+                "commit": {"hash": commit},
+            }
+            if custom_pipeline:
+                target["selector"] = {
+                    "type": "custom",
+                    "pattern": custom_pipeline,
+                }
+            return target
+
+        # Branch-based trigger (default)
+        target = {
+            "type": "pipeline_ref_target",
+            "ref_type": "branch",
+            "ref_name": branch or "main",
+        }
+        if custom_pipeline:
+            target["selector"] = {
+                "type": "custom",
+                "pattern": custom_pipeline,
+            }
+        return target
+
+    def _normalize_pipeline_variables(
+        self,
+        variables: Optional[list[dict[str, Any]] | dict[str, str]] = None,
+    ) -> Optional[list[dict[str, Any]]]:
+        """Normalize pipeline variables to the array format expected by the API.
+
+        Supports both:
+        - Array format: [{"key": "K", "value": "V", "secured": True}]
+        - Dict format: {"KEY": "value"} (backwards compatibility)
+
+        Args:
+            variables: Variables in either format
+
+        Returns:
+            Normalized list of variable dicts, or None if no variables
+        """
+        if not variables:
+            return None
+
+        # If already a list, preserve secured flag
+        if isinstance(variables, list):
+            return [
+                {
+                    "key": v["key"],
+                    "value": v["value"],
+                    **({"secured": v["secured"]} if "secured" in v else {}),
+                }
+                for v in variables
+            ]
+
+        # Convert dict format to list format (without secured flag)
+        return [{"key": k, "value": v} for k, v in variables.items()]
+
     def trigger_pipeline(
         self,
         repo_slug: str,
-        branch: str = "main",
-        variables: Optional[dict[str, str]] = None,
+        branch: Optional[str] = None,
+        commit: Optional[str] = None,
+        custom_pipeline: Optional[str] = None,
+        variables: Optional[list[dict[str, Any]] | dict[str, str]] = None,
     ) -> dict[str, Any]:
         """Trigger a pipeline run.
 
+        Supports custom pipelines (from 'custom:' section in bitbucket-pipelines.yml)
+        and commit-based triggers.
+
         Args:
             repo_slug: Repository slug
-            branch: Branch to run pipeline on (default: main)
-            variables: Custom pipeline variables
+            branch: Branch to run pipeline on (default: main). Mutually exclusive with commit.
+            commit: Commit hash to run pipeline on. Mutually exclusive with branch.
+            custom_pipeline: Name of custom pipeline from 'custom:' section
+                            (e.g., "deploy-staging", "dry-run")
+            variables: Pipeline variables. Can be:
+                      - List of dicts: [{"key": "K", "value": "V", "secured": True}]
+                      - Dict: {"KEY": "value"} (backwards compatibility)
 
         Returns:
             Pipeline run info including 'uuid', 'state'
+
+        Raises:
+            BitbucketError: If both branch and commit are specified
+
+        Examples:
+            # Default branch pipeline
+            trigger_pipeline("my-repo")
+
+            # Custom pipeline on branch
+            trigger_pipeline("my-repo", custom_pipeline="deploy-staging")
+
+            # Custom pipeline on specific commit
+            trigger_pipeline("my-repo", commit="abc123", custom_pipeline="dry-run")
+
+            # With variables (new format with secured)
+            trigger_pipeline("my-repo", variables=[
+                {"key": "ENV", "value": "prod", "secured": False},
+                {"key": "SECRET", "value": "xxx", "secured": True}
+            ])
+
+            # With variables (backwards compatible dict format)
+            trigger_pipeline("my-repo", variables={"ENV": "prod"})
         """
-        payload = {
-            "target": {
-                "ref_type": "branch",
-                "type": "pipeline_ref_target",
-                "ref_name": branch,
-            }
+        # Use default branch if neither branch nor commit specified
+        effective_branch = branch if branch else ("main" if not commit else None)
+
+        payload: dict[str, Any] = {
+            "target": self._build_pipeline_target(
+                branch=effective_branch,
+                commit=commit,
+                custom_pipeline=custom_pipeline,
+            )
         }
-        if variables:
-            payload["variables"] = [
-                {"key": k, "value": v} for k, v in variables.items()
-            ]
+
+        normalized_vars = self._normalize_pipeline_variables(variables)
+        if normalized_vars:
+            payload["variables"] = normalized_vars
 
         result = self._request(
             "POST",
             self._repo_path(repo_slug, "pipelines") + "/",
             json=payload,
         )
-        return self._require_result(result, "trigger pipeline on", branch)
+
+        # Build descriptive target for error message
+        target_desc = f"commit {commit}" if commit else (effective_branch or "main")
+        pipeline_desc = f"custom:{custom_pipeline}" if custom_pipeline else "default"
+
+        return self._require_result(result, f"trigger {pipeline_desc} pipeline on", target_desc)
 
     def get_pipeline(
         self, repo_slug: str, pipeline_uuid: str

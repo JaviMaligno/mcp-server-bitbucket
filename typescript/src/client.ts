@@ -38,6 +38,8 @@ import type {
   UserPermission,
   GroupPermission,
   PaginatedResponse,
+  TriggerPipelineOptions,
+  PipelineTriggerVariable,
 } from './types.js';
 
 /**
@@ -476,22 +478,87 @@ export class BitbucketClient {
 
   // ==================== PIPELINES ====================
 
+  /**
+   * Build the pipeline target object based on options.
+   * Supports branch triggers, commit triggers, and custom pipelines.
+   */
+  private buildPipelineTarget(options: TriggerPipelineOptions): Record<string, unknown> {
+    // Validate mutual exclusivity of branch and commit
+    if (options.branch && options.commit) {
+      throw new BitbucketError('Cannot specify both branch and commit - they are mutually exclusive');
+    }
+
+    // Build target based on trigger type
+    if (options.commit) {
+      // Commit-based trigger
+      const target: Record<string, unknown> = {
+        type: 'pipeline_commit_target',
+        commit: { hash: options.commit },
+      };
+      // Add selector for custom pipeline if specified
+      if (options.customPipeline) {
+        target.selector = {
+          type: 'custom',
+          pattern: options.customPipeline,
+        };
+      }
+      return target;
+    }
+
+    // Branch-based trigger (default)
+    const target: Record<string, unknown> = {
+      type: 'pipeline_ref_target',
+      ref_type: 'branch',
+      ref_name: options.branch || 'main',
+    };
+    // Add selector for custom pipeline if specified
+    if (options.customPipeline) {
+      target.selector = {
+        type: 'custom',
+        pattern: options.customPipeline,
+      };
+    }
+    return target;
+  }
+
+  /**
+   * Normalize pipeline variables to the array format expected by the API.
+   * Supports both array format (with secured flag) and simple object format.
+   */
+  private normalizePipelineVariables(
+    variables?: PipelineTriggerVariable[] | Record<string, string>
+  ): { key: string; value: string; secured?: boolean }[] | undefined {
+    if (!variables) {
+      return undefined;
+    }
+
+    // If already an array, return as-is (with secured flag preserved)
+    if (Array.isArray(variables)) {
+      return variables.map(v => ({
+        key: v.key,
+        value: v.value,
+        ...(v.secured !== undefined && { secured: v.secured }),
+      }));
+    }
+
+    // Convert object format to array format (without secured flag)
+    return Object.entries(variables).map(([key, value]) => ({
+      key,
+      value,
+    }));
+  }
+
   async triggerPipeline(
     repoSlug: string,
-    options: { branch?: string; variables?: Record<string, string> } = {}
+    options: TriggerPipelineOptions = {}
   ): Promise<BitbucketPipeline> {
     const payload: Record<string, unknown> = {
-      target: {
-        ref_type: 'branch',
-        type: 'pipeline_ref_target',
-        ref_name: options.branch || 'main',
-      },
+      target: this.buildPipelineTarget(options),
     };
-    if (options.variables) {
-      payload.variables = Object.entries(options.variables).map(([key, value]) => ({
-        key,
-        value,
-      }));
+
+    const normalizedVariables = this.normalizePipelineVariables(options.variables);
+    if (normalizedVariables && normalizedVariables.length > 0) {
+      payload.variables = normalizedVariables;
     }
 
     const result = await this.request<BitbucketPipeline>(
@@ -499,8 +566,16 @@ export class BitbucketClient {
       `${this.repoPath(repoSlug, 'pipelines')}/`,
       payload
     );
+
+    const targetDesc = options.commit
+      ? `commit ${options.commit}`
+      : (options.branch || 'main');
+    const pipelineDesc = options.customPipeline
+      ? `custom:${options.customPipeline}`
+      : 'default';
+
     if (!result) {
-      throw new BitbucketError(`Failed to trigger pipeline on ${options.branch || 'main'}`);
+      throw new BitbucketError(`Failed to trigger ${pipelineDesc} pipeline on ${targetDesc}`);
     }
     return result;
   }
