@@ -149,13 +149,43 @@ Add to `~/.cursor/mcp.json`:
 | `list_pipelines` | List recent runs |
 | `get_pipeline` | Get status |
 | `get_pipeline_logs` | View logs |
-| `trigger_pipeline` | Trigger a run |
+| `trigger_pipeline` | Trigger a run (supports custom pipelines and commit triggers) |
 | `stop_pipeline` | Stop pipeline |
 | `list_pipeline_variables` | List variables |
 | `get_pipeline_variable` | Get variable |
 | `create_pipeline_variable` | Create variable |
 | `update_pipeline_variable` | Update variable |
 | `delete_pipeline_variable` | Delete variable |
+
+#### trigger_pipeline Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `repo_slug` | string | Repository slug (required) |
+| `branch` | string | Branch to run on (default: main). Mutually exclusive with `commit` |
+| `commit` | string | Commit hash to run on. Mutually exclusive with `branch` |
+| `custom_pipeline` | string | Name from `custom:` section in bitbucket-pipelines.yml |
+| `variables` | array | Variables as `[{key, value, secured?}]` |
+
+**Examples:**
+```python
+# Default pipeline on main
+trigger_pipeline(repo_slug="my-repo")
+
+# Custom pipeline
+trigger_pipeline(repo_slug="my-repo", custom_pipeline="deploy-staging")
+
+# Custom pipeline on specific commit with variables
+trigger_pipeline(
+    repo_slug="my-repo",
+    commit="abc123def",
+    custom_pipeline="deploy-prod",
+    variables=[
+        {"key": "ENV", "value": "production"},
+        {"key": "SECRET", "value": "xxx", "secured": True}
+    ]
+)
+```
 
 ### Branches, Commits, Tags
 | Tool | Description |
