@@ -106,7 +106,6 @@ jobs:
     needs: build-typescript
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    environment: npm
     defaults:
       run:
         working-directory: typescript
