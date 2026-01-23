@@ -262,6 +262,10 @@ uv run python -m src.server
    - **Pipelines**: Read, Write
 5. Copy the token immediately
 
+## Author
+
+Built by [Javier Aguilar](https://www.javieraguilar.ai) - AI Agent Architect specializing in multi-agent orchestration and MCP development.
+
 ## License
 
 MIT
