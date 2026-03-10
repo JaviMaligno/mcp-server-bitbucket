@@ -40,6 +40,7 @@ import type {
   PaginatedResponse,
   TriggerPipelineOptions,
   PipelineTriggerVariable,
+  BitbucketPipelineConfig,
 } from './types.js';
 
 /**
@@ -626,6 +627,43 @@ export class BitbucketClient {
     );
     const result = await this.getPipeline(repoSlug, pipelineUuid);
     return result || { uuid: pipelineUuid, state: { name: 'STOPPED' } };
+  }
+
+  // ==================== PIPELINE CONFIG ====================
+
+  async getPipelineConfig(repoSlug: string): Promise<BitbucketPipelineConfig> {
+    const result = await this.request<BitbucketPipelineConfig>(
+      'GET',
+      this.repoPath(repoSlug, 'pipelines_config')
+    );
+    if (!result) {
+      throw new BitbucketError(`Failed to get pipeline config for: ${repoSlug}`);
+    }
+    return result;
+  }
+
+  async updatePipelineConfig(
+    repoSlug: string,
+    options: { enabled?: boolean }
+  ): Promise<BitbucketPipelineConfig> {
+    const payload: Record<string, unknown> = {};
+    if (options.enabled !== undefined) {
+      payload.enabled = options.enabled;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      throw new BitbucketError('No fields to update');
+    }
+
+    const result = await this.request<BitbucketPipelineConfig>(
+      'PUT',
+      this.repoPath(repoSlug, 'pipelines_config'),
+      payload
+    );
+    if (!result) {
+      throw new BitbucketError(`Failed to update pipeline config for: ${repoSlug}`);
+    }
+    return result;
   }
 
   // ==================== PIPELINE VARIABLES ====================

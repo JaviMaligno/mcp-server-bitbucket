@@ -146,6 +146,29 @@ export const definitions: Tool[] = [
       required: ['repo_slug', 'variable_uuid'],
     },
   },
+  {
+    name: 'get_pipeline_config',
+    description: 'Get pipeline configuration for a repository (check if pipelines are enabled).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_slug: { type: 'string', description: 'Repository slug' },
+      },
+      required: ['repo_slug'],
+    },
+  },
+  {
+    name: 'update_pipeline_config',
+    description: 'Update pipeline configuration for a repository (enable or disable pipelines).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_slug: { type: 'string', description: 'Repository slug' },
+        enabled: { type: 'boolean', description: 'Enable or disable pipelines' },
+      },
+      required: ['repo_slug', 'enabled'],
+    },
+  },
 ];
 
 export const handlers: Record<string, (args: Record<string, unknown>) => Promise<Record<string, unknown>>> = {
@@ -296,6 +319,24 @@ export const handlers: Record<string, (args: Record<string, unknown>) => Promise
     const client = getClient();
     await client.deletePipelineVariable(args.repo_slug as string, args.variable_uuid as string);
     return {};
+  },
+
+  get_pipeline_config: async (args) => {
+    const client = getClient();
+    const result = await client.getPipelineConfig(args.repo_slug as string);
+    return {
+      enabled: result.enabled,
+    };
+  },
+
+  update_pipeline_config: async (args) => {
+    const client = getClient();
+    const result = await client.updatePipelineConfig(args.repo_slug as string, {
+      enabled: args.enabled as boolean,
+    });
+    return {
+      enabled: result.enabled,
+    };
   },
 };
 

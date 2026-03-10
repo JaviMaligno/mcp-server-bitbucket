@@ -144,6 +144,15 @@ export interface BitbucketPipelineVariable {
   secured: boolean;
 }
 
+export interface BitbucketPipelineConfig {
+  enabled: boolean;
+  type?: string;
+  repository?: {
+    uuid?: string;
+    full_name?: string;
+  };
+}
+
 // ==================== PIPELINE TRIGGER OPTIONS ====================
 
 export interface PipelineTriggerVariable {
