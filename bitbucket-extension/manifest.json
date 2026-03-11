@@ -1,0 +1,43 @@
+{
+  "manifest_version": "0.2",
+  "name": "mcp-server-bitbucket",
+  "version": "0.11.0",
+  "description": "Bitbucket API operations: repos, PRs, pipelines, branches y más",
+  "author": {
+    "name": "Javier Aguilar"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "npx",
+      "args": ["mcp-server-bitbucket"],
+      "env": {
+        "BITBUCKET_WORKSPACE": "${user_config.workspace}",
+        "BITBUCKET_EMAIL": "${user_config.email}",
+        "BITBUCKET_API_TOKEN": "${user_config.api_token}"
+      }
+    }
+  },
+  "user_config": {
+    "workspace": {
+      "type": "string",
+      "title": "Bitbucket Workspace",
+      "description": "El slug de tu workspace en Bitbucket (ej: simplekyc)",
+      "required": true
+    },
+    "email": {
+      "type": "string",
+      "title": "Email de Bitbucket",
+      "description": "El email de tu cuenta de Bitbucket",
+      "required": true
+    },
+    "api_token": {
+      "type": "string",
+      "title": "API Token",
+      "description": "API token de Bitbucket (Repository settings > Access tokens)",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}

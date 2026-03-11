@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /**
  * Bitbucket MCP Server - TypeScript Implementation
- * 
+ *
  * Provides tools for interacting with Bitbucket repositories,
  * pull requests, pipelines, branches, commits, deployments, and webhooks.
+ *
+ * Supports two transport modes:
+ * - stdio (default): For local MCP clients like Claude Desktop
+ * - http: For remote MCP clients via Streamable HTTP (set MCP_TRANSPORT=http)
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -16,13 +21,14 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { createServer as createHttpServer } from 'node:http';
 
 import { getSettings } from './settings.js';
 import { toolDefinitions, handleToolCall } from './tools/index.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
-const VERSION = '0.10.0';
+const VERSION = '0.12.0';
 
 function createServer(): Server {
   const server = new Server(
@@ -125,6 +131,87 @@ function createServer(): Server {
   return server;
 }
 
+async function startStdio(): Promise<void> {
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error(`Bitbucket MCP Server v${VERSION} started (stdio)`);
+}
+
+async function startHttp(): Promise<void> {
+  const port = parseInt(process.env.PORT || '3000', 10);
+  const sessions = new Map<string, { server: Server; transport: StreamableHTTPServerTransport }>();
+
+  const httpServer = createHttpServer(async (req, res) => {
+    // CORS headers for remote MCP clients
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
+    res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Health check
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', version: VERSION }));
+      return;
+    }
+
+    if (req.url !== '/mcp') {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+
+    // Check for existing session
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+
+    if (sessionId && sessions.has(sessionId)) {
+      // Existing session — route to its transport
+      const session = sessions.get(sessionId)!;
+      await session.transport.handleRequest(req, res);
+      return;
+    }
+
+    // New session (POST without session ID = initialize)
+    if (req.method === 'POST' && !sessionId) {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID(),
+      });
+      const server = createServer();
+
+      transport.onclose = () => {
+        const sid = (transport as unknown as { _sessionId?: string })._sessionId;
+        if (sid) sessions.delete(sid);
+        server.close();
+      };
+
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+
+      // Capture the session ID that was generated
+      const newSessionId = res.getHeader('mcp-session-id') as string | undefined;
+      if (newSessionId) {
+        sessions.set(newSessionId, { server, transport });
+      }
+      return;
+    }
+
+    // Session not found
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid or missing session' }));
+  });
+
+  httpServer.listen(port, () => {
+    console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port}`);
+  });
+}
+
 async function main(): Promise<void> {
   // Validate settings on startup
   try {
@@ -134,13 +221,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  
-  await server.connect(transport);
-  
-  // Log to stderr so it doesn't interfere with MCP communication on stdout
-  console.error(`Bitbucket MCP Server v${VERSION} started`);
+  const transport = process.env.MCP_TRANSPORT || (process.argv.includes('--http') ? 'http' : 'stdio');
+
+  if (transport === 'http') {
+    await startHttp();
+  } else {
+    await startStdio();
+  }
 }
 
 main().catch((error) => {

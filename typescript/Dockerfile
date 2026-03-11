@@ -27,6 +27,11 @@ RUN adduser -S bitbucket-mcp -u 1001
 RUN chown -R bitbucket-mcp:nodejs /app
 USER bitbucket-mcp
 
+# Default to HTTP transport for remote deployment
+ENV MCP_TRANSPORT=http
+ENV PORT=3000
+EXPOSE 3000
+
 # Use entrypoint script for flexible configuration
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD []
