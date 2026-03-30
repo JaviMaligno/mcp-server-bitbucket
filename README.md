@@ -39,6 +39,10 @@ This repository contains both **TypeScript** and **Python** implementations:
 - **MCP Prompts**: reusable workflow templates (code review, release notes, etc.)
 - **MCP Resources**: browsable workspace data
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/javimaligno-mcp-server-bitbucket).
+
 ## Quick Start
 
 ### TypeScript (Recommended for Smithery)
