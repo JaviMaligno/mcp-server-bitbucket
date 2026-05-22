@@ -3,6 +3,7 @@
 // src/index.ts
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -11,6 +12,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
+import { createServer as createHttpServer } from "http";
 
 // src/settings.ts
 import { z } from "zod";
@@ -504,6 +506,35 @@ var BitbucketClient = class _BitbucketClient {
     );
     const result = await this.getPipeline(repoSlug, pipelineUuid);
     return result || { uuid: pipelineUuid, state: { name: "STOPPED" } };
+  }
+  // ==================== PIPELINE CONFIG ====================
+  async getPipelineConfig(repoSlug) {
+    const result = await this.request(
+      "GET",
+      this.repoPath(repoSlug, "pipelines_config")
+    );
+    if (!result) {
+      throw new BitbucketError(`Failed to get pipeline config for: ${repoSlug}`);
+    }
+    return result;
+  }
+  async updatePipelineConfig(repoSlug, options) {
+    const payload = {};
+    if (options.enabled !== void 0) {
+      payload.enabled = options.enabled;
+    }
+    if (Object.keys(payload).length === 0) {
+      throw new BitbucketError("No fields to update");
+    }
+    const result = await this.request(
+      "PUT",
+      this.repoPath(repoSlug, "pipelines_config"),
+      payload
+    );
+    if (!result) {
+      throw new BitbucketError(`Failed to update pipeline config for: ${repoSlug}`);
+    }
+    return result;
   }
   // ==================== PIPELINE VARIABLES ====================
   async listPipelineVariables(repoSlug, options = {}) {
@@ -1459,6 +1490,29 @@ var definitions3 = [
       },
       required: ["repo_slug", "variable_uuid"]
     }
+  },
+  {
+    name: "get_pipeline_config",
+    description: "Get pipeline configuration for a repository (check if pipelines are enabled).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo_slug: { type: "string", description: "Repository slug" }
+      },
+      required: ["repo_slug"]
+    }
+  },
+  {
+    name: "update_pipeline_config",
+    description: "Update pipeline configuration for a repository (enable or disable pipelines).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo_slug: { type: "string", description: "Repository slug" },
+        enabled: { type: "boolean", description: "Enable or disable pipelines" }
+      },
+      required: ["repo_slug", "enabled"]
+    }
   }
 ];
 var handlers3 = {
@@ -1598,6 +1652,22 @@ var handlers3 = {
     const client = getClient();
     await client.deletePipelineVariable(args.repo_slug, args.variable_uuid);
     return {};
+  },
+  get_pipeline_config: async (args) => {
+    const client = getClient();
+    const result = await client.getPipelineConfig(args.repo_slug);
+    return {
+      enabled: result.enabled
+    };
+  },
+  update_pipeline_config: async (args) => {
+    const client = getClient();
+    const result = await client.updatePipelineConfig(args.repo_slug, {
+      enabled: args.enabled
+    });
+    return {
+      enabled: result.enabled
+    };
   }
 };
 
@@ -2873,7 +2943,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.10.0";
+var VERSION = "0.12.0";
 function createServer() {
   const server = new Server(
     {
@@ -2958,6 +3028,66 @@ function createServer() {
   });
   return server;
 }
+async function startStdio() {
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error(`Bitbucket MCP Server v${VERSION} started (stdio)`);
+}
+async function startHttp() {
+  const port = parseInt(process.env.PORT || "3000", 10);
+  const sessions = /* @__PURE__ */ new Map();
+  const httpServer = createHttpServer(async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    if (req.method === "GET" && req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", version: VERSION }));
+      return;
+    }
+    if (req.url !== "/mcp") {
+      res.writeHead(404);
+      res.end("Not found");
+      return;
+    }
+    const sessionId = req.headers["mcp-session-id"];
+    if (sessionId && sessions.has(sessionId)) {
+      const session = sessions.get(sessionId);
+      await session.transport.handleRequest(req, res);
+      return;
+    }
+    if (req.method === "POST" && !sessionId) {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => crypto.randomUUID()
+      });
+      const server = createServer();
+      transport.onclose = () => {
+        const sid = transport._sessionId;
+        if (sid) sessions.delete(sid);
+        server.close();
+      };
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+      const newSessionId = res.getHeader("mcp-session-id");
+      if (newSessionId) {
+        sessions.set(newSessionId, { server, transport });
+      }
+      return;
+    }
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid or missing session" }));
+  });
+  httpServer.listen(port, () => {
+    console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port}`);
+  });
+}
 async function main() {
   try {
     getSettings();
@@ -2965,10 +3095,12 @@ async function main() {
     console.error("Configuration error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error(`Bitbucket MCP Server v${VERSION} started`);
+  const transport = process.env.MCP_TRANSPORT || (process.argv.includes("--http") ? "http" : "stdio");
+  if (transport === "http") {
+    await startHttp();
+  } else {
+    await startStdio();
+  }
 }
 main().catch((error) => {
   console.error("Fatal error:", error);
