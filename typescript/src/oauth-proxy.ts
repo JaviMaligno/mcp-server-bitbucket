@@ -48,11 +48,36 @@ export const AUTHORIZE_PATH = '/oauth/authorize';
 export const TOKEN_PATH = '/oauth/token';
 export const REGISTER_PATH = '/oauth/register';
 
-/** Claude's callbacks; localhost is allowed for MCP clients that run locally. */
+/** Claude's callbacks. Loopback redirects are handled separately, below. */
 const DEFAULT_REDIRECT_ALLOWLIST = [
   'https://claude.ai/api/mcp/auth_callback',
   'https://claude.com/api/mcp/auth_callback',
 ];
+
+/**
+ * Whether we are willing to send the user back to this redirect.
+ *
+ * Besides the configured list, loopback URIs are accepted: MCP clients that run
+ * on the user's own machine (Claude Code among them) listen on an ephemeral port
+ * and cannot register it in advance, which is exactly the case RFC 8252 §7.3
+ * describes. Only the host is trusted here — the port varies by design, and a
+ * loopback address is only reachable from the user's own machine.
+ */
+export function isAllowedRedirect(uri: string, allowlist: string[]): boolean {
+  if (allowlist.includes(uri)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(uri);
+    return (
+      parsed.protocol === 'http:' &&
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '[::1]')
+    );
+  } catch {
+    return false;
+  }
+}
 
 export interface ProxyConfig {
   /** Public origin of this server; it is the issuer clients see. */
@@ -124,7 +149,7 @@ export function buildAuthorizeRedirect(
   if (!redirectUri) {
     return { status: 400, error: 'invalid_request', description: 'redirect_uri is required' };
   }
-  if (!proxy.redirectAllowlist.includes(redirectUri)) {
+  if (!isAllowedRedirect(redirectUri, proxy.redirectAllowlist)) {
     // An unchecked redirect_uri here would make this an open redirect.
     return {
       status: 400,
@@ -248,7 +273,7 @@ export function registerClient(request: unknown, proxy: ProxyConfig): Registrati
   }
 
   const rejected = redirectUris.filter(
-    (uri) => typeof uri !== 'string' || !proxy.redirectAllowlist.includes(uri)
+    (uri) => typeof uri !== 'string' || !isAllowedRedirect(uri, proxy.redirectAllowlist)
   );
   if (rejected.length > 0) {
     return {

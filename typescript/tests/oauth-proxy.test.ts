@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   AUTHORIZE_PATH,
+  isAllowedRedirect,
   registerClient,
   REGISTER_PATH,
   buildAuthorizeRedirect,
@@ -254,5 +255,32 @@ describe('dynamic client registration', () => {
 
   it('refuses a registration with no redirect_uris', () => {
     expect(registerClient({}, proxy())).toMatchObject({ status: 400 });
+  });
+});
+
+
+describe('loopback redirects', () => {
+  // MCP clients running on the user's machine listen on an ephemeral port and
+  // cannot register it beforehand — RFC 8252 §7.3.
+  it('accepts loopback on any port', () => {
+    const allowlist = [CLAUDE_CALLBACK];
+
+    expect(isAllowedRedirect('http://localhost:53682/callback', allowlist)).toBe(true);
+    expect(isAllowedRedirect('http://127.0.0.1:9000/cb', allowlist)).toBe(true);
+  });
+
+  it('still refuses remote hosts that are not on the list', () => {
+    expect(isAllowedRedirect('https://evil.example.com/cb', [CLAUDE_CALLBACK])).toBe(false);
+    expect(isAllowedRedirect('http://evil.example.com/cb', [CLAUDE_CALLBACK])).toBe(false);
+  });
+
+  it('refuses anything that is not a URL', () => {
+    expect(isAllowedRedirect('not a url', [CLAUDE_CALLBACK])).toBe(false);
+  });
+
+  it('registers a local client with its loopback redirect', () => {
+    const result = registerClient({ redirect_uris: ['http://localhost:53682/callback'] }, proxy());
+
+    expect(result.status).toBe(201);
   });
 });

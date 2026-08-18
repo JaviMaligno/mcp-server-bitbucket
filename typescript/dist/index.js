@@ -168,6 +168,17 @@ var DEFAULT_REDIRECT_ALLOWLIST = [
   "https://claude.ai/api/mcp/auth_callback",
   "https://claude.com/api/mcp/auth_callback"
 ];
+function isAllowedRedirect(uri, allowlist) {
+  if (allowlist.includes(uri)) {
+    return true;
+  }
+  try {
+    const parsed = new URL(uri);
+    return parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]");
+  } catch {
+    return false;
+  }
+}
 function getProxyConfig(auth, env = process.env) {
   const configured = (env.MCP_OAUTH_REDIRECT_ALLOWLIST || "").split(/[\s,]+/).filter(Boolean);
   return {
@@ -195,7 +206,7 @@ function buildAuthorizeRedirect(requestUrl, proxy, upstreamAuthorizeEndpoint) {
   if (!redirectUri) {
     return { status: 400, error: "invalid_request", description: "redirect_uri is required" };
   }
-  if (!proxy.redirectAllowlist.includes(redirectUri)) {
+  if (!isAllowedRedirect(redirectUri, proxy.redirectAllowlist)) {
     return {
       status: 400,
       error: "invalid_request",
@@ -269,7 +280,7 @@ function registerClient(request, proxy) {
     return { status: 400, error: "invalid_redirect_uri", description: "redirect_uris is required" };
   }
   const rejected = redirectUris.filter(
-    (uri) => typeof uri !== "string" || !proxy.redirectAllowlist.includes(uri)
+    (uri) => typeof uri !== "string" || !isAllowedRedirect(uri, proxy.redirectAllowlist)
   );
   if (rejected.length > 0) {
     return {
@@ -3245,7 +3256,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.18.0";
+var VERSION = "0.18.1";
 function createServer() {
   const server = new Server(
     {
