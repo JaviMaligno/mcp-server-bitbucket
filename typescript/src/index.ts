@@ -22,13 +22,19 @@ import {
   GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { createServer as createHttpServer } from 'node:http';
+import {
+  getAuthConfig,
+  protectedResourceMetadata,
+  verifyBearer,
+  wwwAuthenticate,
+} from './auth.js';
 
 import { getSettings } from './settings.js';
 import { toolDefinitions, handleToolCall } from './tools/index.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
-const VERSION = '0.13.0';
+const VERSION = '0.14.0';
 
 function createServer(): Server {
   const server = new Server(
@@ -142,11 +148,15 @@ async function startHttp(): Promise<void> {
   const port = parseInt(process.env.PORT || '3000', 10);
   const sessions = new Map<string, { server: Server; transport: StreamableHTTPServerTransport }>();
 
+  // OAuth protection for /mcp. Null when unconfigured, in which case the
+  // endpoint stays open exactly as before (see src/auth.ts).
+  const auth = getAuthConfig();
+
   const httpServer = createHttpServer(async (req, res) => {
     // CORS headers for remote MCP clients
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, mcp-session-id');
     res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
 
     if (req.method === 'OPTIONS') {
@@ -155,10 +165,17 @@ async function startHttp(): Promise<void> {
       return;
     }
 
-    // Health check
+    // Health check — deliberately left open so platform probes keep working
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', version: VERSION }));
+      return;
+    }
+
+    // Tells clients which authorization server issues tokens for this resource
+    if (auth && req.method === 'GET' && req.url === '/.well-known/oauth-protected-resource') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(protectedResourceMetadata(auth)));
       return;
     }
 
@@ -166,6 +183,20 @@ async function startHttp(): Promise<void> {
       res.writeHead(404);
       res.end('Not found');
       return;
+    }
+
+    // Every /mcp request carries its own token: a session is not a credential,
+    // so an established session must not become a way around the check.
+    if (auth) {
+      const result = await verifyBearer(req.headers.authorization, auth);
+      if (!result.ok) {
+        res.writeHead(result.status, {
+          'Content-Type': 'application/json',
+          'WWW-Authenticate': wwwAuthenticate(auth, result),
+        });
+        res.end(JSON.stringify({ error: result.error, error_description: result.description }));
+        return;
+      }
     }
 
     // Check for existing session
@@ -208,7 +239,8 @@ async function startHttp(): Promise<void> {
   });
 
   httpServer.listen(port, () => {
-    console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port}`);
+    const mode = auth ? `OAuth required (issuer ${auth.issuer})` : 'unauthenticated';
+    console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port} — ${mode}`);
   });
 }
 
