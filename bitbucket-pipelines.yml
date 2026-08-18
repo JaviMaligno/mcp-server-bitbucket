@@ -1,0 +1,24 @@
+# Build de la imagen del MCP con la plantilla compartida de la empresa.
+#
+# El Dockerfile y su contexto viven en typescript/ (la implementación que se
+# despliega), no en la raíz. El step compartido lo admite mediante dos variables
+# de repositorio, para no mover ficheros de sitio:
+#
+#   DOCKERFILE=typescript/Dockerfile
+#   BUILD_CONTEXT=typescript
+#
+# Publica en registry.infra.skyc.cloud/library/bitbucket-mcp:{tag}, donde tag es
+# el tag de git cuando lo hay, y el commit corto + latest en los push a main.
+# La plantilla pasa VERSION y COMMIT como build-args.
+#
+# Los tests siguen corriendo en GitHub Actions (.github/workflows/ci.yml); aquí
+# solo se construye y publica la imagen que despliega ArgoCD.
+
+pipelines:
+  branches:
+    main:
+      import: bitbucket-pipelines:master:docker-build-only
+
+  tags:
+    "**":
+      import: bitbucket-pipelines:master:docker-build-only
