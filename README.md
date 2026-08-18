@@ -74,10 +74,36 @@ claude mcp add bitbucket -s user \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `BITBUCKET_WORKSPACE` | ✅ | Bitbucket workspace slug |
-| `BITBUCKET_EMAIL` | ✅ | Account email for Basic Auth |
-| `BITBUCKET_API_TOKEN` | ✅ | Repository access token |
+| `BITBUCKET_EMAIL` | ✅ (basic auth) | Account email for Basic Auth |
+| `BITBUCKET_API_TOKEN` | ✅ | Atlassian API token (Basic auth) |
+| `BITBUCKET_OAUTH_TOKEN` | | Access token sent as `Authorization: Bearer` |
+| `BITBUCKET_AUTH_TYPE` | | Force auth mode: `basic` or `bearer` (auto-detected) |
 | `API_TIMEOUT` | | Request timeout in seconds (default: 30) |
 | `MAX_RETRIES` | | Max retry attempts for rate limiting (default: 3) |
+
+### Authentication modes
+
+Bitbucket Cloud has two credential families, and they do **not** share an auth scheme:
+
+| Credential | Header | Configuration |
+|------------|--------|---------------|
+| Atlassian API token (`ATATT...`), tied to a personal account | `Authorization: Basic base64(email:token)` | `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN` |
+| Workspace / project / repository access token (`ATCTT...`), owned by the workspace | `Authorization: Bearer <token>` | `BITBUCKET_OAUTH_TOKEN` |
+
+Access tokens return **401 with Basic auth**, so the server picks the mode automatically:
+
+1. `BITBUCKET_AUTH_TYPE`, when set, always wins.
+2. Otherwise `bearer` is used when `BITBUCKET_OAUTH_TOKEN` is set, or when no `BITBUCKET_EMAIL` is configured.
+3. Otherwise `basic` is used (the default for personal API tokens).
+
+Bearer example — a company-owned workspace access token with no personal account involved:
+
+```bash
+claude mcp add bitbucket -s user \
+  -e BITBUCKET_WORKSPACE=your-workspace \
+  -e BITBUCKET_OAUTH_TOKEN=your-workspace-access-token \
+  -- npx mcp-server-bitbucket
+```
 
 ### Claude Code CLI
 

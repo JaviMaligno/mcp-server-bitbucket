@@ -12,9 +12,9 @@ Usage:
 
 from enum import Enum
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -62,11 +62,18 @@ class Settings(BaseSettings):
 
     Environment Variables:
         BITBUCKET_WORKSPACE: Bitbucket workspace slug
-        BITBUCKET_EMAIL: Account email for Basic Auth
-        BITBUCKET_API_TOKEN: Repository access token
+        BITBUCKET_EMAIL: Account email for Basic Auth (required for basic auth)
+        BITBUCKET_API_TOKEN: Atlassian API token / access token
+        BITBUCKET_OAUTH_TOKEN: Access token used with `Authorization: Bearer`
+        BITBUCKET_AUTH_TYPE: Force auth mode, "basic" or "bearer" (auto-detected)
         OUTPUT_FORMAT: Output format (json or toon)
         API_TIMEOUT: Default API request timeout in seconds (default: 30)
         MAX_RETRIES: Maximum retry attempts for rate-limited requests (default: 3)
+
+    Auth modes:
+        basic: Atlassian API tokens (ATATT...) authenticate as `email:token`.
+        bearer: Workspace/project/repository access tokens (ATCTT...) only work
+            as `Authorization: Bearer <token>`; Basic auth returns 401 for them.
     """
 
     model_config = SettingsConfigDict(
@@ -78,8 +85,10 @@ class Settings(BaseSettings):
 
     # Bitbucket API credentials - no default for workspace (must be configured)
     bitbucket_workspace: str
-    bitbucket_email: str
-    bitbucket_api_token: SecretStr
+    bitbucket_email: str = ""
+    bitbucket_api_token: Optional[SecretStr] = None
+    bitbucket_oauth_token: Optional[SecretStr] = None
+    bitbucket_auth_type: Optional[Literal["basic", "bearer"]] = None
 
     # Output format configuration with validation
     output_format: Literal["json", "toon"] = "json"
@@ -87,6 +96,45 @@ class Settings(BaseSettings):
     # API behavior configuration
     api_timeout: int = 30  # seconds
     max_retries: int = 3
+
+    @field_validator("bitbucket_auth_type", mode="before")
+    @classmethod
+    def lowercase_auth_type(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize auth type to lowercase, treating empty values as unset."""
+        if isinstance(v, str):
+            v = v.strip().lower()
+            return v or None
+        return v
+
+    @model_validator(mode="after")
+    def resolve_auth(self) -> "Settings":
+        """Resolve auth mode and the token used for it.
+
+        Explicit BITBUCKET_AUTH_TYPE wins. Otherwise bearer is used when an
+        access token is configured under BITBUCKET_OAUTH_TOKEN or when no email
+        is available (an access token has no account to pair with).
+        """
+        if self.bitbucket_auth_type is None:
+            if self.bitbucket_oauth_token is not None or not self.bitbucket_email:
+                self.bitbucket_auth_type = "bearer"
+            else:
+                self.bitbucket_auth_type = "basic"
+
+        if self.bitbucket_auth_type == "bearer":
+            # Bearer prefers the dedicated access token when both are set
+            token = self.bitbucket_oauth_token or self.bitbucket_api_token
+        else:
+            token = self.bitbucket_api_token
+            if not self.bitbucket_email:
+                raise ValueError("BITBUCKET_EMAIL is required when using basic auth")
+
+        if token is None or not token.get_secret_value():
+            raise ValueError(
+                "BITBUCKET_API_TOKEN (or BITBUCKET_OAUTH_TOKEN) is required"
+            )
+
+        self.bitbucket_api_token = token
+        return self
 
     @field_validator("output_format", mode="before")
     @classmethod

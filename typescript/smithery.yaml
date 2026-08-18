@@ -12,10 +12,16 @@ startCommand:
         description: Bitbucket workspace slug (e.g., 'my-team')
       BITBUCKET_EMAIL:
         type: string
-        description: Account email for Bitbucket Basic Auth
+        description: Account email for Bitbucket Basic Auth (required for basic auth)
       BITBUCKET_API_TOKEN:
         type: string
-        description: Repository access token from Bitbucket
+        description: Atlassian API token used with Basic auth
+      BITBUCKET_OAUTH_TOKEN:
+        type: string
+        description: Workspace/project/repository access token sent as `Authorization: Bearer`
+      BITBUCKET_AUTH_TYPE:
+        type: string
+        description: Force auth mode - `basic` or `bearer` (auto-detected when unset)
       API_TIMEOUT:
         type: number
         default: 30
@@ -26,8 +32,6 @@ startCommand:
         description: Max retry attempts for rate limiting (max 10)
     required:
       - BITBUCKET_WORKSPACE
-      - BITBUCKET_EMAIL
-      - BITBUCKET_API_TOKEN
   commandFunction: |
     (config) => ({
       command: 'node',
@@ -36,6 +40,8 @@ startCommand:
         BITBUCKET_WORKSPACE: config.BITBUCKET_WORKSPACE,
         BITBUCKET_EMAIL: config.BITBUCKET_EMAIL,
         BITBUCKET_API_TOKEN: config.BITBUCKET_API_TOKEN,
+        BITBUCKET_OAUTH_TOKEN: config.BITBUCKET_OAUTH_TOKEN,
+        BITBUCKET_AUTH_TYPE: config.BITBUCKET_AUTH_TYPE,
         API_TIMEOUT: config.API_TIMEOUT ? String(config.API_TIMEOUT) : "30",
         MAX_RETRIES: config.MAX_RETRIES ? String(config.MAX_RETRIES) : "3"
       }

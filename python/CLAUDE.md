@@ -39,7 +39,7 @@ The codebase has a simple layered architecture:
 
 - **`src/__version__.py`**: Centralized version management. Reads version from installed package metadata.
 
-- **`src/bitbucket_client.py`**: Low-level HTTP client for Bitbucket API 2.0. Uses httpx with Basic Auth and connection pooling. Contains all the actual API calls organized by domain (repositories, PRs, pipelines, etc.). Includes automatic retry with exponential backoff for rate-limited requests (HTTP 429). Exposes a singleton via `get_client()`.
+- **`src/bitbucket_client.py`**: Low-level HTTP client for Bitbucket API 2.0. Uses httpx with Basic or Bearer auth (see Configuration) and connection pooling. Contains all the actual API calls organized by domain (repositories, PRs, pipelines, etc.). Includes automatic retry with exponential backoff for rate-limited requests (HTTP 429). Exposes a singleton via `get_client()`.
 
 - **`src/settings.py`**: Centralized configuration using pydantic-settings. Loads environment variables and `.env` files. Provides `get_settings()` for cached access to configuration.
 
@@ -51,14 +51,27 @@ The codebase has a simple layered architecture:
 
 ## Configuration
 
-The server requires three environment variables:
+The server requires:
 - `BITBUCKET_WORKSPACE`: Bitbucket workspace slug
-- `BITBUCKET_EMAIL`: Account email for Basic Auth
-- `BITBUCKET_API_TOKEN`: Repository access token
+- `BITBUCKET_EMAIL`: Account email (required only for Basic auth)
+- `BITBUCKET_API_TOKEN`: Atlassian API token (Basic auth)
 
 Optional configuration:
+- `BITBUCKET_OAUTH_TOKEN`: Access token sent as `Authorization: Bearer`
+- `BITBUCKET_AUTH_TYPE`: Force auth mode, `basic` or `bearer` (auto-detected)
 - `API_TIMEOUT`: Request timeout in seconds (default: 30, max: 300)
 - `MAX_RETRIES`: Max retry attempts for rate limiting (default: 3, max: 10)
+
+### Authentication modes
+
+Atlassian API tokens (`ATATT...`) belong to a personal account and authenticate
+as `Basic base64(email:token)`. Workspace/project/repository access tokens
+(`ATCTT...`) are owned by the workspace and only authenticate as
+`Authorization: Bearer <token>` - Basic auth returns 401 for them.
+
+Resolution order (`src/settings.py`): explicit `BITBUCKET_AUTH_TYPE` wins;
+otherwise `bearer` when `BITBUCKET_OAUTH_TOKEN` is set or no email is
+configured; otherwise `basic`.
 
 ### Output Format (Optional)
 

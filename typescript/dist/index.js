@@ -18,21 +18,41 @@ import { createServer as createHttpServer } from "http";
 import { z } from "zod";
 var settingsSchema = z.object({
   bitbucketWorkspace: z.string().min(1, "BITBUCKET_WORKSPACE is required"),
-  bitbucketEmail: z.string().min(1, "BITBUCKET_EMAIL is required"),
-  bitbucketApiToken: z.string().min(1, "BITBUCKET_API_TOKEN is required"),
+  bitbucketEmail: z.string().default(""),
+  bitbucketApiToken: z.string().min(1, "BITBUCKET_API_TOKEN (or BITBUCKET_OAUTH_TOKEN) is required"),
+  bitbucketAuthType: z.enum(["basic", "bearer"]),
   apiTimeout: z.number().min(1).max(300).default(30),
   maxRetries: z.number().min(0).max(10).default(3),
   outputFormat: z.enum(["json", "toon"]).default("json")
-});
+}).refine(
+  (s) => s.bitbucketAuthType !== "basic" || s.bitbucketEmail.length > 0,
+  { message: "BITBUCKET_EMAIL is required when using basic auth", path: ["bitbucketEmail"] }
+);
 var cachedSettings = null;
+function resolveAuthType(explicit, oauthToken, email) {
+  const normalized = explicit.trim().toLowerCase();
+  if (normalized === "bearer" || normalized === "basic") {
+    return normalized;
+  }
+  if (oauthToken.length > 0 || email.length === 0) {
+    return "bearer";
+  }
+  return "basic";
+}
 function getSettings() {
   if (cachedSettings) {
     return cachedSettings;
   }
+  const email = process.env.BITBUCKET_EMAIL || "";
+  const oauthToken = process.env.BITBUCKET_OAUTH_TOKEN || "";
+  const apiToken = process.env.BITBUCKET_API_TOKEN || "";
+  const authType = resolveAuthType(process.env.BITBUCKET_AUTH_TYPE || "", oauthToken, email);
   const rawSettings = {
     bitbucketWorkspace: process.env.BITBUCKET_WORKSPACE || "",
-    bitbucketEmail: process.env.BITBUCKET_EMAIL || "",
-    bitbucketApiToken: process.env.BITBUCKET_API_TOKEN || "",
+    bitbucketEmail: email,
+    // Bearer mode prefers the dedicated OAuth/access token when both are set
+    bitbucketApiToken: authType === "bearer" ? oauthToken || apiToken : apiToken,
+    bitbucketAuthType: authType,
     apiTimeout: parseInt(process.env.API_TIMEOUT || "30", 10),
     maxRetries: parseInt(process.env.MAX_RETRIES || "3", 10),
     outputFormat: process.env.OUTPUT_FORMAT || "json"
@@ -100,15 +120,19 @@ var BitbucketClient = class _BitbucketClient {
     const settings = getSettings();
     this.workspace = settings.bitbucketWorkspace;
     this.maxRetries = settings.maxRetries;
+    const useBearer = settings.bitbucketAuthType === "bearer";
     this.client = axios.create({
       baseURL: _BitbucketClient.BASE_URL,
       timeout: settings.apiTimeout * 1e3,
-      auth: {
-        username: settings.bitbucketEmail,
-        password: settings.bitbucketApiToken
+      ...useBearer ? {} : {
+        auth: {
+          username: settings.bitbucketEmail,
+          password: settings.bitbucketApiToken
+        }
       },
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...useBearer ? { Authorization: `Bearer ${settings.bitbucketApiToken}` } : {}
       }
     });
   }
@@ -2943,7 +2967,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.12.0";
+var VERSION = "0.13.0";
 function createServer() {
   const server = new Server(
     {
