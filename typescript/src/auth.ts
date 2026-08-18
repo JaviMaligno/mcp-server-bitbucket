@@ -19,7 +19,13 @@
  * - MCP_OAUTH_ISSUER: token issuer, e.g. https://login.microsoftonline.com/<tenant>/v2.0
  * - MCP_OAUTH_AUDIENCE: expected `aud`, e.g. api://<app-id>
  * - MCP_OAUTH_JWKS_URI: override for the signing keys (derived from the issuer otherwise)
- * - MCP_OAUTH_REQUIRED_SCOPE: scope the token must carry, e.g. mcp.access
+ * - MCP_OAUTH_REQUIRED_SCOPE: scope(s) the token must carry, comma-separated when
+ *   more than one is acceptable, e.g. "mcp.access,mcp.invoke" (Entra names the
+ *   delegated scope and the application role differently, and a token only ever
+ *   carries one of the two)
+ * - MCP_OAUTH_SCOPES_SUPPORTED: scope(s) advertised to clients, when they differ
+ *   from the ones validated. Entra hands out `scp: mcp.access` but expects the
+ *   client to *request* `api://<app-id>/mcp.access`, so the full URI goes here
  * - MCP_PUBLIC_URL: public URL of this server, used as the resource identifier
  */
 
@@ -30,8 +36,10 @@ export interface AuthConfig {
   issuer: string;
   /** Expected `aud` claim — the identifier of this API. */
   audience: string;
-  /** Scope the token must carry, if any. */
-  requiredScope?: string;
+  /** Scopes the token must carry at least one of, if any. */
+  requiredScopes?: string[];
+  /** Scopes advertised in the metadata document; defaults to requiredScopes. */
+  advertisedScopes?: string[];
   /** Public URL of this server, advertised as the protected resource. */
   resourceUrl: string;
   /** Key source used to verify token signatures. */
@@ -84,16 +92,24 @@ export function getAuthConfig(
   }
 
   const jwksUri = (env.MCP_OAUTH_JWKS_URI || '').trim() || defaultJwksUri(issuer);
-  const requiredScope = (env.MCP_OAUTH_REQUIRED_SCOPE || '').trim() || undefined;
+  const requiredScopes = parseScopes(env.MCP_OAUTH_REQUIRED_SCOPE);
+  const advertisedScopes = parseScopes(env.MCP_OAUTH_SCOPES_SUPPORTED) ?? requiredScopes;
   const resourceUrl = (env.MCP_PUBLIC_URL || '').trim().replace(/\/+$/, '') || audience;
 
   return {
     issuer,
     audience,
-    requiredScope,
+    requiredScopes,
+    advertisedScopes,
     resourceUrl,
     jwks: jwksOverride ?? createRemoteJWKSet(new URL(jwksUri)),
   };
+}
+
+/** Split a comma- or space-separated scope list; undefined when empty. */
+function parseScopes(raw: string | undefined): string[] | undefined {
+  const scopes = (raw || '').split(/[\s,]+/).filter(Boolean);
+  return scopes.length > 0 ? scopes : undefined;
 }
 
 /**
@@ -101,11 +117,15 @@ export function getAuthConfig(
  * for this resource. Claude fetches this after a 401 to start the OAuth flow.
  */
 export function protectedResourceMetadata(config: AuthConfig): Record<string, unknown> {
+  // Advertise what clients must request; when that is not spelled out, the
+  // scopes we validate are the best available answer.
+  const scopes = config.advertisedScopes ?? config.requiredScopes;
+
   return {
     resource: config.resourceUrl,
     authorization_servers: [config.issuer],
     bearer_methods_supported: ['header'],
-    ...(config.requiredScope ? { scopes_supported: [config.requiredScope] } : {}),
+    ...(scopes ? { scopes_supported: scopes } : {}),
   };
 }
 
@@ -188,13 +208,16 @@ export async function verifyBearer(
     };
   }
 
-  if (config.requiredScope && !tokenScopes(payload).includes(config.requiredScope)) {
-    return {
-      ok: false,
-      status: 403,
-      error: 'insufficient_scope',
-      description: `Token is missing the '${config.requiredScope}' scope`,
-    };
+  if (config.requiredScopes) {
+    const granted = tokenScopes(payload);
+    if (!config.requiredScopes.some((scope) => granted.includes(scope))) {
+      return {
+        ok: false,
+        status: 403,
+        error: 'insufficient_scope',
+        description: `Token carries none of the required scopes: ${config.requiredScopes.join(', ')}`,
+      };
+    }
   }
 
   const caller = [payload.preferred_username, payload.upn, payload.appid]

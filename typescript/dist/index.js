@@ -27,22 +27,29 @@ function getAuthConfig(env = process.env, jwksOverride) {
     return null;
   }
   const jwksUri = (env.MCP_OAUTH_JWKS_URI || "").trim() || defaultJwksUri(issuer);
-  const requiredScope = (env.MCP_OAUTH_REQUIRED_SCOPE || "").trim() || void 0;
+  const requiredScopes = parseScopes(env.MCP_OAUTH_REQUIRED_SCOPE);
+  const advertisedScopes = parseScopes(env.MCP_OAUTH_SCOPES_SUPPORTED) ?? requiredScopes;
   const resourceUrl = (env.MCP_PUBLIC_URL || "").trim().replace(/\/+$/, "") || audience;
   return {
     issuer,
     audience,
-    requiredScope,
+    requiredScopes,
+    advertisedScopes,
     resourceUrl,
     jwks: jwksOverride ?? createRemoteJWKSet(new URL(jwksUri))
   };
 }
+function parseScopes(raw) {
+  const scopes = (raw || "").split(/[\s,]+/).filter(Boolean);
+  return scopes.length > 0 ? scopes : void 0;
+}
 function protectedResourceMetadata(config) {
+  const scopes = config.advertisedScopes ?? config.requiredScopes;
   return {
     resource: config.resourceUrl,
     authorization_servers: [config.issuer],
     bearer_methods_supported: ["header"],
-    ...config.requiredScope ? { scopes_supported: [config.requiredScope] } : {}
+    ...scopes ? { scopes_supported: scopes } : {}
   };
 }
 function wwwAuthenticate(config, failure) {
@@ -102,13 +109,16 @@ async function verifyBearer(authorization, config) {
       description: error instanceof Error ? error.message : "Token verification failed"
     };
   }
-  if (config.requiredScope && !tokenScopes(payload).includes(config.requiredScope)) {
-    return {
-      ok: false,
-      status: 403,
-      error: "insufficient_scope",
-      description: `Token is missing the '${config.requiredScope}' scope`
-    };
+  if (config.requiredScopes) {
+    const granted = tokenScopes(payload);
+    if (!config.requiredScopes.some((scope) => granted.includes(scope))) {
+      return {
+        ok: false,
+        status: 403,
+        error: "insufficient_scope",
+        description: `Token carries none of the required scopes: ${config.requiredScopes.join(", ")}`
+      };
+    }
   }
   const caller = [payload.preferred_username, payload.upn, payload.appid].find((value) => typeof value === "string" && value.length > 0);
   return { ok: true, subject: typeof payload.sub === "string" ? payload.sub : void 0, caller };
