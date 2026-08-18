@@ -10,6 +10,8 @@ import { SignJWT, exportJWK, generateKeyPair, createLocalJWKSet, type JWTVerifyG
 import {
   defaultJwksUri,
   getAuthConfig,
+  METADATA_PATHS,
+  metadataUrl,
   protectedResourceMetadata,
   verifyBearer,
   wwwAuthenticate,
@@ -36,7 +38,7 @@ function config(overrides: Partial<AuthConfig> = {}): AuthConfig {
   return {
     issuer: ISSUER,
     audience: AUDIENCE,
-    resourceUrl: RESOURCE,
+    resourceUrl: `${RESOURCE}/mcp`,
     jwks,
     ...overrides,
   };
@@ -69,8 +71,8 @@ describe('configuration', () => {
 
     expect(cfg).not.toBeNull();
     expect(cfg!.issuer).toBe(ISSUER);
-    // trailing slash trimmed so the metadata URL does not end up doubled
-    expect(cfg!.resourceUrl).toBe(RESOURCE);
+    // trailing slash trimmed, and the resource is the MCP endpoint itself
+    expect(cfg!.resourceUrl).toBe(`${RESOURCE}/mcp`);
   });
 
   it('derives the Entra keys endpoint from the issuer', () => {
@@ -85,7 +87,7 @@ describe('metadata', () => {
     const meta = protectedResourceMetadata(config({ requiredScopes: ['mcp.access'] }));
 
     expect(meta).toMatchObject({
-      resource: RESOURCE,
+      resource: `${RESOURCE}/mcp`,
       authorization_servers: [ISSUER],
       scopes_supported: ['mcp.access'],
     });
@@ -109,8 +111,20 @@ describe('metadata', () => {
 
   it('points the WWW-Authenticate header at the metadata document', () => {
     expect(wwwAuthenticate(config())).toContain(
-      `resource_metadata="${RESOURCE}/.well-known/oauth-protected-resource"`
+      `resource_metadata="${RESOURCE}/.well-known/oauth-protected-resource/mcp"`
     );
+  });
+
+  it('derives the metadata URL from the resource, without duplicating /mcp', () => {
+    expect(metadataUrl(config())).toBe(`${RESOURCE}/.well-known/oauth-protected-resource/mcp`);
+  });
+
+  it('serves the metadata at both the path-aware and the bare well-known location', () => {
+    // RFC 9728 derives the path from the resource; some clients only try the bare one
+    expect(METADATA_PATHS).toEqual([
+      '/.well-known/oauth-protected-resource/mcp',
+      '/.well-known/oauth-protected-resource',
+    ]);
   });
 });
 

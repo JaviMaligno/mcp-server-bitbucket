@@ -24,6 +24,7 @@ import {
 import { createServer as createHttpServer } from 'node:http';
 import {
   getAuthConfig,
+  METADATA_PATHS,
   protectedResourceMetadata,
   verifyBearer,
   wwwAuthenticate,
@@ -34,7 +35,7 @@ import { toolDefinitions, handleToolCall } from './tools/index.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
-const VERSION = '0.14.1';
+const VERSION = '0.15.0';
 
 function createServer(): Server {
   const server = new Server(
@@ -165,6 +166,22 @@ async function startHttp(): Promise<void> {
       return;
     }
 
+    // One line per request. With a single shared Bitbucket credential this is
+    // the only record of who used the server, and it is what makes an OAuth
+    // problem diagnosable from the outside.
+    const clientIp =
+      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
+      req.socket.remoteAddress ??
+      'unknown';
+    res.on('finish', () => {
+      console.error(
+        `${req.method} ${req.url} -> ${res.statusCode} from ${clientIp}${
+          callerLabel ? ` (${callerLabel})` : ''
+        }`
+      );
+    });
+    let callerLabel = '';
+
     // Health check — deliberately left open so platform probes keep working
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -173,7 +190,7 @@ async function startHttp(): Promise<void> {
     }
 
     // Tells clients which authorization server issues tokens for this resource
-    if (auth && req.method === 'GET' && req.url === '/.well-known/oauth-protected-resource') {
+    if (auth && req.method === 'GET' && METADATA_PATHS.includes(req.url || '')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(protectedResourceMetadata(auth)));
       return;
@@ -189,6 +206,9 @@ async function startHttp(): Promise<void> {
     // so an established session must not become a way around the check.
     if (auth) {
       const result = await verifyBearer(req.headers.authorization, auth);
+      if (result.ok) {
+        callerLabel = result.caller ?? result.subject ?? 'authenticated';
+      }
       if (!result.ok) {
         res.writeHead(result.status, {
           'Content-Type': 'application/json',

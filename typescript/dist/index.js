@@ -29,7 +29,8 @@ function getAuthConfig(env = process.env, jwksOverride) {
   const jwksUri = (env.MCP_OAUTH_JWKS_URI || "").trim() || defaultJwksUri(issuer);
   const requiredScopes = parseScopes(env.MCP_OAUTH_REQUIRED_SCOPE);
   const advertisedScopes = parseScopes(env.MCP_OAUTH_SCOPES_SUPPORTED) ?? requiredScopes;
-  const resourceUrl = (env.MCP_PUBLIC_URL || "").trim().replace(/\/+$/, "") || audience;
+  const publicUrl = (env.MCP_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+  const resourceUrl = publicUrl ? `${publicUrl}/mcp` : audience;
   return {
     issuer,
     audience,
@@ -52,10 +53,18 @@ function protectedResourceMetadata(config) {
     ...scopes ? { scopes_supported: scopes } : {}
   };
 }
+var METADATA_PATHS = [
+  "/.well-known/oauth-protected-resource/mcp",
+  "/.well-known/oauth-protected-resource"
+];
+function metadataUrl(config) {
+  const origin = config.resourceUrl.replace(/\/mcp$/, "");
+  return `${origin}${METADATA_PATHS[0]}`;
+}
 function wwwAuthenticate(config, failure) {
   const parts = [
     `Bearer realm="mcp"`,
-    `resource_metadata="${config.resourceUrl}/.well-known/oauth-protected-resource"`
+    `resource_metadata="${metadataUrl(config)}"`
   ];
   if (failure) {
     parts.push(`error="${failure.error}"`, `error_description="${failure.description}"`);
@@ -3077,7 +3086,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.14.1";
+var VERSION = "0.15.0";
 function createServer() {
   const server = new Server(
     {
@@ -3182,12 +3191,19 @@ async function startHttp() {
       res.end();
       return;
     }
+    const clientIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+    res.on("finish", () => {
+      console.error(
+        `${req.method} ${req.url} -> ${res.statusCode} from ${clientIp}${callerLabel ? ` (${callerLabel})` : ""}`
+      );
+    });
+    let callerLabel = "";
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", version: VERSION }));
       return;
     }
-    if (auth && req.method === "GET" && req.url === "/.well-known/oauth-protected-resource") {
+    if (auth && req.method === "GET" && METADATA_PATHS.includes(req.url || "")) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(protectedResourceMetadata(auth)));
       return;
@@ -3199,6 +3215,9 @@ async function startHttp() {
     }
     if (auth) {
       const result = await verifyBearer(req.headers.authorization, auth);
+      if (result.ok) {
+        callerLabel = result.caller ?? result.subject ?? "authenticated";
+      }
       if (!result.ok) {
         res.writeHead(result.status, {
           "Content-Type": "application/json",

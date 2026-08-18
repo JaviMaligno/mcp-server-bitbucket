@@ -26,7 +26,10 @@
  * - MCP_OAUTH_SCOPES_SUPPORTED: scope(s) advertised to clients, when they differ
  *   from the ones validated. Entra hands out `scp: mcp.access` but expects the
  *   client to *request* `api://<app-id>/mcp.access`, so the full URI goes here
- * - MCP_PUBLIC_URL: public URL of this server, used as the resource identifier
+ * - MCP_PUBLIC_URL: public URL of this server. The resource identifier is the MCP
+ *   endpoint itself (<public-url>/mcp), which is the most specific canonical URI
+ *   per RFC 8707, and the metadata is served at the path RFC 9728 derives from
+ *   it: /.well-known/oauth-protected-resource/mcp
  */
 
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from 'jose';
@@ -94,7 +97,10 @@ export function getAuthConfig(
   const jwksUri = (env.MCP_OAUTH_JWKS_URI || '').trim() || defaultJwksUri(issuer);
   const requiredScopes = parseScopes(env.MCP_OAUTH_REQUIRED_SCOPE);
   const advertisedScopes = parseScopes(env.MCP_OAUTH_SCOPES_SUPPORTED) ?? requiredScopes;
-  const resourceUrl = (env.MCP_PUBLIC_URL || '').trim().replace(/\/+$/, '') || audience;
+  const publicUrl = (env.MCP_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  // The resource is the MCP endpoint, not the host: clients ask for the most
+  // specific URI they can, and the audience check depends on this matching.
+  const resourceUrl = publicUrl ? `${publicUrl}/mcp` : audience;
 
   return {
     issuer,
@@ -130,13 +136,30 @@ export function protectedResourceMetadata(config: AuthConfig): Record<string, un
 }
 
 /**
+ * Paths the metadata document is served from. RFC 9728 derives the path from the
+ * resource identifier, so a resource at /mcp is described at
+ * /.well-known/oauth-protected-resource/mcp; the bare path is kept too because
+ * some clients only look there.
+ */
+export const METADATA_PATHS = [
+  '/.well-known/oauth-protected-resource/mcp',
+  '/.well-known/oauth-protected-resource',
+];
+
+/** Absolute URL of the metadata document, as advertised to clients. */
+export function metadataUrl(config: AuthConfig): string {
+  const origin = config.resourceUrl.replace(/\/mcp$/, '');
+  return `${origin}${METADATA_PATHS[0]}`;
+}
+
+/**
  * Value for the WWW-Authenticate header, pointing at the metadata document so
  * the client can discover where to authenticate.
  */
 export function wwwAuthenticate(config: AuthConfig, failure?: AuthFailure): string {
   const parts = [
     `Bearer realm="mcp"`,
-    `resource_metadata="${config.resourceUrl}/.well-known/oauth-protected-resource"`,
+    `resource_metadata="${metadataUrl(config)}"`,
   ];
   if (failure) {
     parts.push(`error="${failure.error}"`, `error_description="${failure.description}"`);
