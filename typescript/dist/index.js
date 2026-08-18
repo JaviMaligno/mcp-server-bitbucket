@@ -163,6 +163,7 @@ async function verifyBearer(authorization, config) {
 // src/oauth-proxy.ts
 var AUTHORIZE_PATH = "/oauth/authorize";
 var TOKEN_PATH = "/oauth/token";
+var REGISTER_PATH = "/oauth/register";
 var DEFAULT_REDIRECT_ALLOWLIST = [
   "https://claude.ai/api/mcp/auth_callback",
   "https://claude.com/api/mcp/auth_callback"
@@ -171,6 +172,7 @@ function getProxyConfig(auth, env = process.env) {
   const configured = (env.MCP_OAUTH_REDIRECT_ALLOWLIST || "").split(/[\s,]+/).filter(Boolean);
   return {
     origin: serverOrigin(auth),
+    clientId: (env.MCP_OAUTH_CLIENT_ID || "").trim(),
     upstreamScope: (env.MCP_OAUTH_UPSTREAM_SCOPE || "").trim() || [...auth.advertisedScopes ?? [], "offline_access"].join(" ").trim(),
     redirectAllowlist: configured.length > 0 ? configured : DEFAULT_REDIRECT_ALLOWLIST
   };
@@ -183,11 +185,8 @@ function proxyAuthorizationServerMetadata(auth, proxy) {
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: [
-      "client_secret_post",
-      "client_secret_basic",
-      "none"
-    ],
+    token_endpoint_auth_methods_supported: ["none"],
+    ...proxy.clientId ? { registration_endpoint: `${proxy.origin}${REGISTER_PATH}` } : {},
     ...auth.advertisedScopes ? { scopes_supported: auth.advertisedScopes } : {}
   };
 }
@@ -255,6 +254,42 @@ async function resolveUpstreamEndpoints(auth, fetchImpl = fetch) {
 function redactUrlForLog(url) {
   const [path, query] = url.split("?");
   return query ? `${path}?<redacted>` : path;
+}
+function registerClient(request, proxy) {
+  if (!proxy.clientId) {
+    return {
+      status: 400,
+      error: "invalid_request",
+      description: "This server has no upstream client configured"
+    };
+  }
+  const body = request ?? {};
+  const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris : [];
+  if (redirectUris.length === 0) {
+    return { status: 400, error: "invalid_redirect_uri", description: "redirect_uris is required" };
+  }
+  const rejected = redirectUris.filter(
+    (uri) => typeof uri !== "string" || !proxy.redirectAllowlist.includes(uri)
+  );
+  if (rejected.length > 0) {
+    return {
+      status: 400,
+      error: "invalid_redirect_uri",
+      description: "redirect_uris are not allowed for this server"
+    };
+  }
+  return {
+    status: 201,
+    body: {
+      client_id: proxy.clientId,
+      redirect_uris: redirectUris,
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      client_id_issued_at: Math.floor(Date.now() / 1e3),
+      ...typeof body.client_name === "string" ? { client_name: body.client_name } : {}
+    }
+  };
 }
 
 // src/settings.ts
@@ -3210,7 +3245,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.17.0";
+var VERSION = "0.18.0";
 function createServer() {
   const server = new Server(
     {
@@ -3354,6 +3389,29 @@ async function startHttp() {
         console.error(`Authorization request could not be forwarded: ${error}`);
         res.writeHead(502, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "authorization_server_unavailable" }));
+      }
+      return;
+    }
+    if (auth && proxy && req.method === "POST" && req.url === REGISTER_PATH) {
+      const chunks = [];
+      for await (const chunk of req) {
+        chunks.push(chunk);
+      }
+      let parsed = {};
+      try {
+        parsed = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_request", error_description: "Body must be JSON" }));
+        return;
+      }
+      const result = registerClient(parsed, proxy);
+      if (result.status === 201) {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result.body));
+      } else {
+        res.writeHead(result.status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: result.error, error_description: result.description }));
       }
       return;
     }

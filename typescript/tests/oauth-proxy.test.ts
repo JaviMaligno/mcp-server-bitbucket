@@ -10,6 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   AUTHORIZE_PATH,
+  registerClient,
+  REGISTER_PATH,
   buildAuthorizeRedirect,
   buildTokenRequestBody,
   forwardTokenRequest,
@@ -39,7 +41,7 @@ const auth = {
 } as AuthConfig;
 
 function proxy(overrides: Partial<ProxyConfig> = {}): ProxyConfig {
-  return { ...getProxyConfig(auth, {}), ...overrides };
+  return { ...getProxyConfig(auth, { MCP_OAUTH_CLIENT_ID: 'client-from-entra' }), ...overrides };
 }
 
 function authorizeUrl(params: Record<string, string>): URL {
@@ -215,5 +217,42 @@ describe('logging', () => {
 
   it('leaves plain paths readable', () => {
     expect(redactUrlForLog('/mcp')).toBe('/mcp');
+  });
+});
+
+
+describe('dynamic client registration', () => {
+  // Without this, MCP clients refuse the server outright:
+  // "Incompatible auth server: does not support dynamic client registration"
+  it('is advertised in the metadata when a client is configured', () => {
+    const meta = proxyAuthorizationServerMetadata(auth, proxy());
+
+    expect(meta.registration_endpoint).toBe(`${ORIGIN}${REGISTER_PATH}`);
+  });
+
+  it('is not advertised when there is no client to hand out', () => {
+    const meta = proxyAuthorizationServerMetadata(auth, proxy({ clientId: '' }));
+
+    expect(meta.registration_endpoint).toBeUndefined();
+  });
+
+  it('returns the existing client, with no secret to leak', () => {
+    const result = registerClient({ redirect_uris: [CLAUDE_CALLBACK], client_name: 'Claude' }, proxy());
+
+    expect(result.status).toBe(201);
+    if (result.status !== 201) return;
+    expect(result.body.client_id).toBe('client-from-entra');
+    expect(result.body.token_endpoint_auth_method).toBe('none');
+    expect(result.body.client_secret).toBeUndefined();
+  });
+
+  it('refuses to hand the client out for a redirect we do not accept', () => {
+    const result = registerClient({ redirect_uris: ['https://evil.example.com/cb'] }, proxy());
+
+    expect(result).toMatchObject({ status: 400, error: 'invalid_redirect_uri' });
+  });
+
+  it('refuses a registration with no redirect_uris', () => {
+    expect(registerClient({}, proxy())).toMatchObject({ status: 400 });
   });
 });

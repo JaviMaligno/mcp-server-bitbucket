@@ -37,6 +37,8 @@ import {
   getProxyConfig,
   proxyAuthorizationServerMetadata,
   redactUrlForLog,
+  REGISTER_PATH,
+  registerClient,
   resolveUpstreamEndpoints,
   TOKEN_PATH,
 } from './oauth-proxy.js';
@@ -46,7 +48,7 @@ import { toolDefinitions, handleToolCall } from './tools/index.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
-const VERSION = '0.17.0';
+const VERSION = '0.18.0';
 
 function createServer(): Server {
   const server = new Server(
@@ -236,6 +238,34 @@ async function startHttp(): Promise<void> {
         console.error(`Authorization request could not be forwarded: ${error}`);
         res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'authorization_server_unavailable' }));
+      }
+      return;
+    }
+
+    // Dynamic client registration: MCP clients refuse an authorization server
+    // without it, so we hand back the client that already exists upstream.
+    if (auth && proxy && req.method === 'POST' && req.url === REGISTER_PATH) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+
+      let parsed: unknown = {};
+      try {
+        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Body must be JSON' }));
+        return;
+      }
+
+      const result = registerClient(parsed, proxy);
+      if (result.status === 201) {
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result.body));
+      } else {
+        res.writeHead(result.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: result.error, error_description: result.description }));
       }
       return;
     }

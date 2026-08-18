@@ -26,6 +26,14 @@
  * Redirect URIs are checked against an allowlist: this is the one place where a
  * proxy like this can be turned into an open redirect, so it is not optional.
  *
+ * Dynamic client registration (RFC 7591) is part of that translation: MCP
+ * clients refuse an authorization server without it ("Incompatible auth server:
+ * does not support dynamic client registration"), while Entra has no such
+ * endpoint. Registration here does not create anything — it hands back the
+ * client that already exists in Entra, and only for redirect URIs we accept.
+ * The client is registered in Entra as a public client, so there is no secret
+ * to hand out: PKCE is what protects the exchange.
+ *
  * Environment variables:
  * - MCP_OAUTH_UPSTREAM_SCOPE: scope requested from Entra, e.g.
  *   "api://<app-id>/mcp.access offline_access"
@@ -38,6 +46,7 @@ import { authorizationServerMetadata, serverOrigin } from './auth.js';
 
 export const AUTHORIZE_PATH = '/oauth/authorize';
 export const TOKEN_PATH = '/oauth/token';
+export const REGISTER_PATH = '/oauth/register';
 
 /** Claude's callbacks; localhost is allowed for MCP clients that run locally. */
 const DEFAULT_REDIRECT_ALLOWLIST = [
@@ -48,6 +57,8 @@ const DEFAULT_REDIRECT_ALLOWLIST = [
 export interface ProxyConfig {
   /** Public origin of this server; it is the issuer clients see. */
   origin: string;
+  /** The client already registered upstream, handed out on registration. */
+  clientId: string;
   /** Scope to request upstream, in place of whatever the client asked for. */
   upstreamScope: string;
   /** Redirect URIs we are willing to send users back to. */
@@ -64,6 +75,7 @@ export function getProxyConfig(
 
   return {
     origin: serverOrigin(auth),
+    clientId: (env.MCP_OAUTH_CLIENT_ID || '').trim(),
     upstreamScope:
       (env.MCP_OAUTH_UPSTREAM_SCOPE || '').trim() ||
       [...(auth.advertisedScopes ?? []), 'offline_access'].join(' ').trim(),
@@ -86,11 +98,8 @@ export function proxyAuthorizationServerMetadata(
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
-    token_endpoint_auth_methods_supported: [
-      'client_secret_post',
-      'client_secret_basic',
-      'none',
-    ],
+    token_endpoint_auth_methods_supported: ['none'],
+    ...(proxy.clientId ? { registration_endpoint: `${proxy.origin}${REGISTER_PATH}` } : {}),
     ...(auth.advertisedScopes ? { scopes_supported: auth.advertisedScopes } : {}),
   };
 }
@@ -208,4 +217,57 @@ export async function resolveUpstreamEndpoints(
 export function redactUrlForLog(url: string): string {
   const [path, query] = url.split('?');
   return query ? `${path}?<redacted>` : path;
+}
+
+export type RegistrationResult =
+  | { status: 201; body: Record<string, unknown> }
+  | { status: 400; error: string; description: string };
+
+/**
+ * Answer a dynamic client registration request with the client that already
+ * exists upstream.
+ *
+ * Nothing is created and nothing is stored. The redirect URIs are checked
+ * against the allowlist first: handing our client out for an arbitrary redirect
+ * is how this would turn into someone else's authorization flow.
+ */
+export function registerClient(request: unknown, proxy: ProxyConfig): RegistrationResult {
+  if (!proxy.clientId) {
+    return {
+      status: 400,
+      error: 'invalid_request',
+      description: 'This server has no upstream client configured',
+    };
+  }
+
+  const body = (request ?? {}) as Record<string, unknown>;
+  const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris : [];
+
+  if (redirectUris.length === 0) {
+    return { status: 400, error: 'invalid_redirect_uri', description: 'redirect_uris is required' };
+  }
+
+  const rejected = redirectUris.filter(
+    (uri) => typeof uri !== 'string' || !proxy.redirectAllowlist.includes(uri)
+  );
+  if (rejected.length > 0) {
+    return {
+      status: 400,
+      error: 'invalid_redirect_uri',
+      description: 'redirect_uris are not allowed for this server',
+    };
+  }
+
+  return {
+    status: 201,
+    body: {
+      client_id: proxy.clientId,
+      redirect_uris: redirectUris,
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      ...(typeof body.client_name === 'string' ? { client_name: body.client_name } : {}),
+    },
+  };
 }
