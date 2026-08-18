@@ -37,6 +37,7 @@ function getAuthConfig(env = process.env, jwksOverride) {
     requiredScopes,
     advertisedScopes,
     resourceUrl,
+    proxyAuthorizationServerMetadata: (env.MCP_OAUTH_AS_METADATA || "proxy").trim() !== "issuer",
     jwks: jwksOverride ?? createRemoteJWKSet(new URL(jwksUri))
   };
 }
@@ -46,9 +47,10 @@ function parseScopes(raw) {
 }
 function protectedResourceMetadata(config) {
   const scopes = config.advertisedScopes ?? config.requiredScopes;
+  const authorizationServer = config.proxyAuthorizationServerMetadata ? serverOrigin(config) : config.issuer;
   return {
     resource: config.resourceUrl,
-    authorization_servers: [config.issuer],
+    authorization_servers: [authorizationServer],
     bearer_methods_supported: ["header"],
     ...scopes ? { scopes_supported: scopes } : {}
   };
@@ -57,9 +59,32 @@ var METADATA_PATHS = [
   "/.well-known/oauth-protected-resource/mcp",
   "/.well-known/oauth-protected-resource"
 ];
+function serverOrigin(config) {
+  return config.resourceUrl.replace(/\/mcp$/, "");
+}
 function metadataUrl(config) {
-  const origin = config.resourceUrl.replace(/\/mcp$/, "");
-  return `${origin}${METADATA_PATHS[0]}`;
+  return `${serverOrigin(config)}${METADATA_PATHS[0]}`;
+}
+var AS_METADATA_PATH = "/.well-known/oauth-authorization-server";
+var asMetadataCache = null;
+var AS_METADATA_TTL_MS = 60 * 60 * 1e3;
+async function authorizationServerMetadata(config, fetchImpl = fetch, now = Date.now()) {
+  if (asMetadataCache && now - asMetadataCache.fetchedAt < AS_METADATA_TTL_MS) {
+    return asMetadataCache.document;
+  }
+  const url = `${config.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`;
+  const response = await fetchImpl(url);
+  if (!response.ok) {
+    throw new Error(`Could not read OpenID configuration from ${url}: HTTP ${response.status}`);
+  }
+  const upstream = await response.json();
+  const document = {
+    ...upstream,
+    code_challenge_methods_supported: upstream.code_challenge_methods_supported ?? ["S256"],
+    grant_types_supported: upstream.grant_types_supported ?? ["authorization_code", "refresh_token"]
+  };
+  asMetadataCache = { document, fetchedAt: now };
+  return document;
 }
 function wwwAuthenticate(config, failure) {
   const parts = [
@@ -3086,7 +3111,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.15.0";
+var VERSION = "0.16.0";
 function createServer() {
   const server = new Server(
     {
@@ -3206,6 +3231,18 @@ async function startHttp() {
     if (auth && req.method === "GET" && METADATA_PATHS.includes(req.url || "")) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(protectedResourceMetadata(auth)));
+      return;
+    }
+    if (auth?.proxyAuthorizationServerMetadata && req.method === "GET" && req.url === AS_METADATA_PATH) {
+      try {
+        const metadata = await authorizationServerMetadata(auth);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(metadata));
+      } catch (error) {
+        console.error(`Failed to build authorization server metadata: ${error}`);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "authorization_server_unavailable" }));
+      }
       return;
     }
     if (req.url !== "/mcp") {

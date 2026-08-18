@@ -23,6 +23,12 @@
  *   more than one is acceptable, e.g. "mcp.access,mcp.invoke" (Entra names the
  *   delegated scope and the application role differently, and a token only ever
  *   carries one of the two)
+ * - MCP_OAUTH_AS_METADATA: 'proxy' (default) to publish the authorization server
+ *   metadata ourselves, or 'issuer' to point clients straight at the issuer.
+ *   Entra ID does not serve RFC 8414 metadata at all — /.well-known/oauth-authorization-server
+ *   is a 404 on every variant — so a client that follows the MCP spec stops there
+ *   and never reaches the login page. Proxying republishes the issuer's OpenID
+ *   configuration at our own well-known path, which is what unblocks the flow.
  * - MCP_OAUTH_SCOPES_SUPPORTED: scope(s) advertised to clients, when they differ
  *   from the ones validated. Entra hands out `scp: mcp.access` but expects the
  *   client to *request* `api://<app-id>/mcp.access`, so the full URI goes here
@@ -45,6 +51,8 @@ export interface AuthConfig {
   advertisedScopes?: string[];
   /** Public URL of this server, advertised as the protected resource. */
   resourceUrl: string;
+  /** When true, we publish the authorization server metadata ourselves. */
+  proxyAuthorizationServerMetadata: boolean;
   /** Key source used to verify token signatures. */
   jwks: JWTVerifyGetKey;
 }
@@ -108,6 +116,7 @@ export function getAuthConfig(
     requiredScopes,
     advertisedScopes,
     resourceUrl,
+    proxyAuthorizationServerMetadata: (env.MCP_OAUTH_AS_METADATA || 'proxy').trim() !== 'issuer',
     jwks: jwksOverride ?? createRemoteJWKSet(new URL(jwksUri)),
   };
 }
@@ -127,9 +136,15 @@ export function protectedResourceMetadata(config: AuthConfig): Record<string, un
   // scopes we validate are the best available answer.
   const scopes = config.advertisedScopes ?? config.requiredScopes;
 
+  // Point clients at whoever actually serves RFC 8414 metadata: ourselves when
+  // proxying (because the issuer does not), otherwise the issuer.
+  const authorizationServer = config.proxyAuthorizationServerMetadata
+    ? serverOrigin(config)
+    : config.issuer;
+
   return {
     resource: config.resourceUrl,
-    authorization_servers: [config.issuer],
+    authorization_servers: [authorizationServer],
     bearer_methods_supported: ['header'],
     ...(scopes ? { scopes_supported: scopes } : {}),
   };
@@ -146,10 +161,64 @@ export const METADATA_PATHS = [
   '/.well-known/oauth-protected-resource',
 ];
 
+/** Origin this server is reachable at, derived from the resource identifier. */
+export function serverOrigin(config: AuthConfig): string {
+  return config.resourceUrl.replace(/\/mcp$/, '');
+}
+
 /** Absolute URL of the metadata document, as advertised to clients. */
 export function metadataUrl(config: AuthConfig): string {
-  const origin = config.resourceUrl.replace(/\/mcp$/, '');
-  return `${origin}${METADATA_PATHS[0]}`;
+  return `${serverOrigin(config)}${METADATA_PATHS[0]}`;
+}
+
+/** Where RFC 8414 metadata is served from when we publish it ourselves. */
+export const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
+
+interface CachedMetadata {
+  document: Record<string, unknown>;
+  fetchedAt: number;
+}
+
+let asMetadataCache: CachedMetadata | null = null;
+const AS_METADATA_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Authorization server metadata to publish on our own well-known path.
+ *
+ * Built from the issuer's OpenID configuration — the one document Entra does
+ * serve — so the endpoints are always whatever the issuer currently advertises,
+ * rather than a copy that silently goes stale. PKCE is asserted because the MCP
+ * spec requires it of clients and Entra supports it without listing it.
+ */
+export async function authorizationServerMetadata(
+  config: AuthConfig,
+  fetchImpl: typeof fetch = fetch,
+  now: number = Date.now()
+): Promise<Record<string, unknown>> {
+  if (asMetadataCache && now - asMetadataCache.fetchedAt < AS_METADATA_TTL_MS) {
+    return asMetadataCache.document;
+  }
+
+  const url = `${config.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration`;
+  const response = await fetchImpl(url);
+  if (!response.ok) {
+    throw new Error(`Could not read OpenID configuration from ${url}: HTTP ${response.status}`);
+  }
+
+  const upstream = (await response.json()) as Record<string, unknown>;
+  const document = {
+    ...upstream,
+    code_challenge_methods_supported: upstream.code_challenge_methods_supported ?? ['S256'],
+    grant_types_supported: upstream.grant_types_supported ?? ['authorization_code', 'refresh_token'],
+  };
+
+  asMetadataCache = { document, fetchedAt: now };
+  return document;
+}
+
+/** Drop the cached metadata (tests, and after a configuration change). */
+export function resetAuthorizationServerMetadataCache(): void {
+  asMetadataCache = null;
 }
 
 /**

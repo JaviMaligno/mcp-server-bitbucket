@@ -5,14 +5,16 @@
  * same key, so nothing here touches the network or a real authorization server.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { SignJWT, exportJWK, generateKeyPair, createLocalJWKSet, type JWTVerifyGetKey } from 'jose';
 import {
+  authorizationServerMetadata,
   defaultJwksUri,
   getAuthConfig,
   METADATA_PATHS,
   metadataUrl,
   protectedResourceMetadata,
+  resetAuthorizationServerMetadataCache,
   verifyBearer,
   wwwAuthenticate,
   type AuthConfig,
@@ -39,6 +41,7 @@ function config(overrides: Partial<AuthConfig> = {}): AuthConfig {
     issuer: ISSUER,
     audience: AUDIENCE,
     resourceUrl: `${RESOURCE}/mcp`,
+    proxyAuthorizationServerMetadata: true,
     jwks,
     ...overrides,
   };
@@ -87,10 +90,17 @@ describe('metadata', () => {
     const meta = protectedResourceMetadata(config({ requiredScopes: ['mcp.access'] }));
 
     expect(meta).toMatchObject({
+      // we serve the RFC 8414 document ourselves, so we are the advertised AS
       resource: `${RESOURCE}/mcp`,
-      authorization_servers: [ISSUER],
+      authorization_servers: [RESOURCE],
       scopes_supported: ['mcp.access'],
     });
+  });
+
+  it('points at the issuer directly when not proxying its metadata', () => {
+    const meta = protectedResourceMetadata(config({ proxyAuthorizationServerMetadata: false }));
+
+    expect(meta).toMatchObject({ authorization_servers: [ISSUER] });
   });
 
   it('advertises the scopes clients must request when they differ from the validated ones', () => {
@@ -205,5 +215,54 @@ describe('scopes', () => {
     );
 
     expect(result).toMatchObject({ ok: false, status: 403, error: 'insufficient_scope' });
+  });
+});
+
+
+describe('authorization server metadata', () => {
+  // Entra serves no RFC 8414 document, which is where the connector flow died:
+  // the client read our resource metadata and then had nowhere to go.
+  const openIdConfiguration = {
+    issuer: ISSUER,
+    authorization_endpoint: 'https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize',
+    token_endpoint: 'https://login.microsoftonline.com/tenant/oauth2/v2.0/token',
+    response_types_supported: ['code'],
+  };
+
+  beforeEach(() => resetAuthorizationServerMetadataCache());
+
+  it('republishes the issuer configuration, asserting PKCE support', async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify(openIdConfiguration), { status: 200 }) as Response;
+
+    const meta = await authorizationServerMetadata(config(), fetchImpl as typeof fetch);
+
+    expect(meta).toMatchObject({
+      issuer: ISSUER,
+      authorization_endpoint: openIdConfiguration.authorization_endpoint,
+      token_endpoint: openIdConfiguration.token_endpoint,
+      code_challenge_methods_supported: ['S256'],
+    });
+  });
+
+  it('reads the issuer once and then serves from cache', async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return new Response(JSON.stringify(openIdConfiguration), { status: 200 }) as Response;
+    };
+
+    await authorizationServerMetadata(config(), fetchImpl as typeof fetch);
+    await authorizationServerMetadata(config(), fetchImpl as typeof fetch);
+
+    expect(calls).toBe(1);
+  });
+
+  it('surfaces an unreachable issuer instead of serving a broken document', async () => {
+    const fetchImpl = async () => new Response('nope', { status: 500 }) as Response;
+
+    await expect(authorizationServerMetadata(config(), fetchImpl as typeof fetch)).rejects.toThrow(
+      /HTTP 500/
+    );
   });
 });

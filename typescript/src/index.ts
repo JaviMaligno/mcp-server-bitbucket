@@ -23,6 +23,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { createServer as createHttpServer } from 'node:http';
 import {
+  AS_METADATA_PATH,
+  authorizationServerMetadata,
   getAuthConfig,
   METADATA_PATHS,
   protectedResourceMetadata,
@@ -35,7 +37,7 @@ import { toolDefinitions, handleToolCall } from './tools/index.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
-const VERSION = '0.15.0';
+const VERSION = '0.16.0';
 
 function createServer(): Server {
   const server = new Server(
@@ -193,6 +195,21 @@ async function startHttp(): Promise<void> {
     if (auth && req.method === 'GET' && METADATA_PATHS.includes(req.url || '')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(protectedResourceMetadata(auth)));
+      return;
+    }
+
+    // Entra does not serve RFC 8414 metadata, and clients stop there, so we
+    // republish the issuer's configuration under our own origin.
+    if (auth?.proxyAuthorizationServerMetadata && req.method === 'GET' && req.url === AS_METADATA_PATH) {
+      try {
+        const metadata = await authorizationServerMetadata(auth);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(metadata));
+      } catch (error) {
+        console.error(`Failed to build authorization server metadata: ${error}`);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'authorization_server_unavailable' }));
+      }
       return;
     }
 
