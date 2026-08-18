@@ -82,13 +82,29 @@ describe('configuration', () => {
 
 describe('metadata', () => {
   it('advertises the issuer as the authorization server', () => {
-    const meta = protectedResourceMetadata(config({ requiredScope: 'mcp.access' }));
+    const meta = protectedResourceMetadata(config({ requiredScopes: ['mcp.access'] }));
 
     expect(meta).toMatchObject({
       resource: RESOURCE,
       authorization_servers: [ISSUER],
       scopes_supported: ['mcp.access'],
     });
+  });
+
+  it('advertises the scopes clients must request when they differ from the validated ones', () => {
+    // Entra validates `scp: mcp.access` but the client has to ask for the full URI
+    const meta = protectedResourceMetadata(
+      config({ requiredScopes: ['mcp.access'], advertisedScopes: ['api://bitbucket-mcp/mcp.access'] })
+    );
+
+    expect(meta).toMatchObject({ scopes_supported: ['api://bitbucket-mcp/mcp.access'] });
+  });
+
+  it('accepts a token carrying any one of several accepted scopes', async () => {
+    const cfg = config({ requiredScopes: ['mcp.access', 'mcp.invoke'] });
+
+    expect((await verifyBearer(`Bearer ${await token({ scp: 'mcp.access' })}`, cfg)).ok).toBe(true);
+    expect((await verifyBearer(`Bearer ${await token({ roles: ['mcp.invoke'] })}`, cfg)).ok).toBe(true);
   });
 
   it('points the WWW-Authenticate header at the metadata document', () => {
@@ -153,7 +169,7 @@ describe('scopes', () => {
   it('accepts a delegated token carrying the required scope in scp', async () => {
     const result = await verifyBearer(
       `Bearer ${await token({ scp: 'mcp.access other.scope' })}`,
-      config({ requiredScope: 'mcp.access' })
+      config({ requiredScopes: ['mcp.access'] })
     );
 
     expect(result.ok).toBe(true);
@@ -162,7 +178,7 @@ describe('scopes', () => {
   it('accepts an application token carrying it in roles', async () => {
     const result = await verifyBearer(
       `Bearer ${await token({ roles: ['mcp.access'] })}`,
-      config({ requiredScope: 'mcp.access' })
+      config({ requiredScopes: ['mcp.access'] })
     );
 
     expect(result.ok).toBe(true);
@@ -171,7 +187,7 @@ describe('scopes', () => {
   it('answers 403 insufficient_scope when the scope is missing', async () => {
     const result = await verifyBearer(
       `Bearer ${await token({ scp: 'other.scope' })}`,
-      config({ requiredScope: 'mcp.access' })
+      config({ requiredScopes: ['mcp.access'] })
     );
 
     expect(result).toMatchObject({ ok: false, status: 403, error: 'insufficient_scope' });
