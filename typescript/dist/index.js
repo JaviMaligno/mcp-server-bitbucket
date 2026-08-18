@@ -14,6 +14,106 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { createServer as createHttpServer } from "http";
 
+// src/auth.ts
+import { createRemoteJWKSet, jwtVerify } from "jose";
+function defaultJwksUri(issuer) {
+  const base = issuer.replace(/\/+$/, "").replace(/\/v2\.0$/, "");
+  return `${base}/discovery/v2.0/keys`;
+}
+function getAuthConfig(env = process.env, jwksOverride) {
+  const issuer = (env.MCP_OAUTH_ISSUER || "").trim();
+  const audience = (env.MCP_OAUTH_AUDIENCE || "").trim();
+  if (!issuer || !audience) {
+    return null;
+  }
+  const jwksUri = (env.MCP_OAUTH_JWKS_URI || "").trim() || defaultJwksUri(issuer);
+  const requiredScope = (env.MCP_OAUTH_REQUIRED_SCOPE || "").trim() || void 0;
+  const resourceUrl = (env.MCP_PUBLIC_URL || "").trim().replace(/\/+$/, "") || audience;
+  return {
+    issuer,
+    audience,
+    requiredScope,
+    resourceUrl,
+    jwks: jwksOverride ?? createRemoteJWKSet(new URL(jwksUri))
+  };
+}
+function protectedResourceMetadata(config) {
+  return {
+    resource: config.resourceUrl,
+    authorization_servers: [config.issuer],
+    bearer_methods_supported: ["header"],
+    ...config.requiredScope ? { scopes_supported: [config.requiredScope] } : {}
+  };
+}
+function wwwAuthenticate(config, failure) {
+  const parts = [
+    `Bearer realm="mcp"`,
+    `resource_metadata="${config.resourceUrl}/.well-known/oauth-protected-resource"`
+  ];
+  if (failure) {
+    parts.push(`error="${failure.error}"`, `error_description="${failure.description}"`);
+  }
+  return parts.join(", ");
+}
+function tokenScopes(payload) {
+  const scp = payload.scp;
+  if (typeof scp === "string") {
+    return scp.split(" ").filter(Boolean);
+  }
+  if (Array.isArray(scp)) {
+    return scp.filter((s) => typeof s === "string");
+  }
+  const roles = payload.roles;
+  if (Array.isArray(roles)) {
+    return roles.filter((r) => typeof r === "string");
+  }
+  return [];
+}
+async function verifyBearer(authorization, config) {
+  if (!authorization) {
+    return {
+      ok: false,
+      status: 401,
+      error: "invalid_token",
+      description: "Authorization header is required"
+    };
+  }
+  const match = /^Bearer[ ]+(.+)$/i.exec(authorization.trim());
+  if (!match) {
+    return {
+      ok: false,
+      status: 401,
+      error: "invalid_token",
+      description: "Authorization header must use the Bearer scheme"
+    };
+  }
+  let payload;
+  try {
+    const verified = await jwtVerify(match[1], config.jwks, {
+      issuer: config.issuer,
+      audience: config.audience
+    });
+    payload = verified.payload;
+  } catch (error) {
+    return {
+      ok: false,
+      status: 401,
+      error: "invalid_token",
+      description: error instanceof Error ? error.message : "Token verification failed"
+    };
+  }
+  if (config.requiredScope && !tokenScopes(payload).includes(config.requiredScope)) {
+    return {
+      ok: false,
+      status: 403,
+      error: "insufficient_scope",
+      description: `Token is missing the '${config.requiredScope}' scope`
+    };
+  }
+  const caller = [payload.preferred_username, payload.upn, payload.appid].find((value) => typeof value === "string" && value.length > 0);
+  return { ok: true, subject: typeof payload.sub === "string" ? payload.sub : void 0, caller };
+}
+
 // src/settings.ts
 import { z } from "zod";
 var settingsSchema = z.object({
@@ -2967,7 +3067,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.13.0";
+var VERSION = "0.14.0";
 function createServer() {
   const server = new Server(
     {
@@ -3061,10 +3161,11 @@ async function startStdio() {
 async function startHttp() {
   const port = parseInt(process.env.PORT || "3000", 10);
   const sessions = /* @__PURE__ */ new Map();
+  const auth = getAuthConfig();
   const httpServer = createHttpServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, mcp-session-id");
     res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -3076,10 +3177,26 @@ async function startHttp() {
       res.end(JSON.stringify({ status: "ok", version: VERSION }));
       return;
     }
+    if (auth && req.method === "GET" && req.url === "/.well-known/oauth-protected-resource") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(protectedResourceMetadata(auth)));
+      return;
+    }
     if (req.url !== "/mcp") {
       res.writeHead(404);
       res.end("Not found");
       return;
+    }
+    if (auth) {
+      const result = await verifyBearer(req.headers.authorization, auth);
+      if (!result.ok) {
+        res.writeHead(result.status, {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": wwwAuthenticate(auth, result)
+        });
+        res.end(JSON.stringify({ error: result.error, error_description: result.description }));
+        return;
+      }
     }
     const sessionId = req.headers["mcp-session-id"];
     if (sessionId && sessions.has(sessionId)) {
@@ -3109,7 +3226,8 @@ async function startHttp() {
     res.end(JSON.stringify({ error: "Invalid or missing session" }));
   });
   httpServer.listen(port, () => {
-    console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port}`);
+    const mode = auth ? `OAuth required (issuer ${auth.issuer})` : "unauthenticated";
+    console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port} \u2014 ${mode}`);
   });
 }
 async function main() {

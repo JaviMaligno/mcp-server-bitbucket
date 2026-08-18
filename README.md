@@ -105,6 +105,37 @@ claude mcp add bitbucket -s user \
   -- npx mcp-server-bitbucket
 ```
 
+### Protecting the remote server (OAuth)
+
+The stdio server runs on your machine with your own credential, so it needs no
+protection. A **remote** deployment is different: it holds one shared credential
+and serves whoever reaches it, so `/mcp` can be gated on a bearer token issued
+by an external authorization server (Microsoft Entra ID, Okta, Auth0…).
+
+| Variable | Description |
+|----------|-------------|
+| `MCP_OAUTH_ISSUER` | Token issuer, e.g. `https://login.microsoftonline.com/<tenant>/v2.0` |
+| `MCP_OAUTH_AUDIENCE` | Expected `aud` claim, e.g. `api://bitbucket-mcp` |
+| `MCP_OAUTH_JWKS_URI` | Signing keys (derived from the issuer when omitted) |
+| `MCP_OAUTH_REQUIRED_SCOPE` | Scope the token must carry, e.g. `mcp.access` |
+| `MCP_PUBLIC_URL` | Public URL of this server, advertised as the resource |
+
+Protection is **off unless both `MCP_OAUTH_ISSUER` and `MCP_OAUTH_AUDIENCE` are
+set**, so existing deployments are unaffected. With them set, the server:
+
+- answers unauthenticated `/mcp` requests with `401` and a `WWW-Authenticate`
+  header pointing at `/.well-known/oauth-protected-resource`, which is what makes
+  an MCP client start the OAuth flow;
+- serves that metadata document (RFC 9728) naming the authorization server;
+- verifies every request's JWT — signature against the issuer's JWKS, plus
+  `iss`, `aud` and expiry — and returns `403 insufficient_scope` when a valid
+  token lacks the required scope;
+- leaves `/health` open, so platform probes keep working.
+
+Note what this does and does not do: it controls **who may use the server**.
+Calls still reach Bitbucket under the server's own credential, so it does not
+attribute actions to individual users.
+
 ### Claude Code CLI
 
 ```bash
