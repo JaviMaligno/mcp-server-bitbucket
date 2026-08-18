@@ -41,6 +41,7 @@ function config(overrides: Partial<AuthConfig> = {}): AuthConfig {
     issuer: ISSUER,
     audience: AUDIENCE,
     resourceUrl: `${RESOURCE}/mcp`,
+    resourceIdentifier: `${RESOURCE}/mcp`,
     proxyAuthorizationServerMetadata: true,
     jwks,
     ...overrides,
@@ -95,6 +96,14 @@ describe('metadata', () => {
       authorization_servers: [RESOURCE],
       scopes_supported: ['mcp.access'],
     });
+  });
+
+  it('advertises an overridden resource identifier when the URL cannot be used', () => {
+    // Entra rejects the canonical URL with AADSTS9010010 unless it matches the
+    // scopes, so against Entra the resource is the API's Application ID URI
+    const meta = protectedResourceMetadata(config({ resourceIdentifier: 'api://bitbucket-mcp' }));
+
+    expect(meta).toMatchObject({ resource: 'api://bitbucket-mcp' });
   });
 
   it('points at the issuer directly when not proxying its metadata', () => {

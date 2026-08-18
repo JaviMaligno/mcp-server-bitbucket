@@ -23,6 +23,13 @@
  *   more than one is acceptable, e.g. "mcp.access,mcp.invoke" (Entra names the
  *   delegated scope and the application role differently, and a token only ever
  *   carries one of the two)
+ * - MCP_OAUTH_RESOURCE: identifier advertised as the protected resource, when it
+ *   cannot be the server's own URL. The spec wants the canonical MCP endpoint,
+ *   and clients send it as the RFC 8707 `resource` parameter — but Entra rejects
+ *   that with AADSTS9010010 ("resource parameter doesn't match the requested
+ *   scopes") unless it is the API's Application ID URI, and it only accepts
+ *   https identifiers on domains verified in the tenant. So against Entra this
+ *   is set to api://<app-id>.
  * - MCP_OAUTH_AS_METADATA: 'proxy' (default) to publish the authorization server
  *   metadata ourselves, or 'issuer' to point clients straight at the issuer.
  *   Entra ID does not serve RFC 8414 metadata at all — /.well-known/oauth-authorization-server
@@ -49,8 +56,10 @@ export interface AuthConfig {
   requiredScopes?: string[];
   /** Scopes advertised in the metadata document; defaults to requiredScopes. */
   advertisedScopes?: string[];
-  /** Public URL of this server, advertised as the protected resource. */
+  /** Public URL of this server; anchors the well-known paths. */
   resourceUrl: string;
+  /** What we advertise as the resource — the URL itself unless overridden. */
+  resourceIdentifier: string;
   /** When true, we publish the authorization server metadata ourselves. */
   proxyAuthorizationServerMetadata: boolean;
   /** Key source used to verify token signatures. */
@@ -109,6 +118,7 @@ export function getAuthConfig(
   // The resource is the MCP endpoint, not the host: clients ask for the most
   // specific URI they can, and the audience check depends on this matching.
   const resourceUrl = publicUrl ? `${publicUrl}/mcp` : audience;
+  const resourceIdentifier = (env.MCP_OAUTH_RESOURCE || '').trim() || resourceUrl;
 
   return {
     issuer,
@@ -116,6 +126,7 @@ export function getAuthConfig(
     requiredScopes,
     advertisedScopes,
     resourceUrl,
+    resourceIdentifier,
     proxyAuthorizationServerMetadata: (env.MCP_OAUTH_AS_METADATA || 'proxy').trim() !== 'issuer',
     jwks: jwksOverride ?? createRemoteJWKSet(new URL(jwksUri)),
   };
@@ -143,7 +154,7 @@ export function protectedResourceMetadata(config: AuthConfig): Record<string, un
     : config.issuer;
 
   return {
-    resource: config.resourceUrl,
+    resource: config.resourceIdentifier,
     authorization_servers: [authorizationServer],
     bearer_methods_supported: ['header'],
     ...(scopes ? { scopes_supported: scopes } : {}),

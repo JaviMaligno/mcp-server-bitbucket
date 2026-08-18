@@ -31,12 +31,14 @@ function getAuthConfig(env = process.env, jwksOverride) {
   const advertisedScopes = parseScopes(env.MCP_OAUTH_SCOPES_SUPPORTED) ?? requiredScopes;
   const publicUrl = (env.MCP_PUBLIC_URL || "").trim().replace(/\/+$/, "");
   const resourceUrl = publicUrl ? `${publicUrl}/mcp` : audience;
+  const resourceIdentifier = (env.MCP_OAUTH_RESOURCE || "").trim() || resourceUrl;
   return {
     issuer,
     audience,
     requiredScopes,
     advertisedScopes,
     resourceUrl,
+    resourceIdentifier,
     proxyAuthorizationServerMetadata: (env.MCP_OAUTH_AS_METADATA || "proxy").trim() !== "issuer",
     jwks: jwksOverride ?? createRemoteJWKSet(new URL(jwksUri))
   };
@@ -49,7 +51,7 @@ function protectedResourceMetadata(config) {
   const scopes = config.advertisedScopes ?? config.requiredScopes;
   const authorizationServer = config.proxyAuthorizationServerMetadata ? serverOrigin(config) : config.issuer;
   return {
-    resource: config.resourceUrl,
+    resource: config.resourceIdentifier,
     authorization_servers: [authorizationServer],
     bearer_methods_supported: ["header"],
     ...scopes ? { scopes_supported: scopes } : {}
@@ -3111,7 +3113,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.16.0";
+var VERSION = "0.16.1";
 function createServer() {
   const server = new Server(
     {
