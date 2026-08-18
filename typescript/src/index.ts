@@ -24,20 +24,29 @@ import {
 import { createServer as createHttpServer } from 'node:http';
 import {
   AS_METADATA_PATH,
-  authorizationServerMetadata,
   getAuthConfig,
   METADATA_PATHS,
   protectedResourceMetadata,
   verifyBearer,
   wwwAuthenticate,
 } from './auth.js';
+import {
+  AUTHORIZE_PATH,
+  buildAuthorizeRedirect,
+  forwardTokenRequest,
+  getProxyConfig,
+  proxyAuthorizationServerMetadata,
+  redactUrlForLog,
+  resolveUpstreamEndpoints,
+  TOKEN_PATH,
+} from './oauth-proxy.js';
 
 import { getSettings } from './settings.js';
 import { toolDefinitions, handleToolCall } from './tools/index.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
-const VERSION = '0.16.1';
+const VERSION = '0.17.0';
 
 function createServer(): Server {
   const server = new Server(
@@ -154,6 +163,9 @@ async function startHttp(): Promise<void> {
   // OAuth protection for /mcp. Null when unconfigured, in which case the
   // endpoint stays open exactly as before (see src/auth.ts).
   const auth = getAuthConfig();
+  // We stand in as the authorization server, translating to the real one (see
+  // src/oauth-proxy.ts for why going direct cannot work with Entra).
+  const proxy = auth ? getProxyConfig(auth) : null;
 
   const httpServer = createHttpServer(async (req, res) => {
     // CORS headers for remote MCP clients
@@ -177,7 +189,7 @@ async function startHttp(): Promise<void> {
       'unknown';
     res.on('finish', () => {
       console.error(
-        `${req.method} ${req.url} -> ${res.statusCode} from ${clientIp}${
+        `${req.method} ${redactUrlForLog(req.url ?? '')} -> ${res.statusCode} from ${clientIp}${
           callerLabel ? ` (${callerLabel})` : ''
         }`
       );
@@ -198,15 +210,54 @@ async function startHttp(): Promise<void> {
       return;
     }
 
-    // Entra does not serve RFC 8414 metadata, and clients stop there, so we
-    // republish the issuer's configuration under our own origin.
-    if (auth?.proxyAuthorizationServerMetadata && req.method === 'GET' && req.url === AS_METADATA_PATH) {
+    // We are the authorization server as far as clients are concerned.
+    if (auth && proxy && req.method === 'GET' && req.url === AS_METADATA_PATH) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(proxyAuthorizationServerMetadata(auth, proxy)));
+      return;
+    }
+
+    // Authorization request: hand the user to the real authorization server,
+    // rewriting only what it will not accept.
+    if (auth && proxy && req.method === 'GET' && req.url?.startsWith(AUTHORIZE_PATH)) {
       try {
-        const metadata = await authorizationServerMetadata(auth);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(metadata));
+        const { authorize } = await resolveUpstreamEndpoints(auth);
+        const requestUrl = new URL(req.url, proxy.origin);
+        const result = buildAuthorizeRedirect(requestUrl, proxy, authorize);
+
+        if (result.status === 302) {
+          res.writeHead(302, { Location: result.location });
+          res.end();
+        } else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: result.error, error_description: result.description }));
+        }
       } catch (error) {
-        console.error(`Failed to build authorization server metadata: ${error}`);
+        console.error(`Authorization request could not be forwarded: ${error}`);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'authorization_server_unavailable' }));
+      }
+      return;
+    }
+
+    // Token exchange: forwarded verbatim, so the token stays the issuer's.
+    if (auth && proxy && req.method === 'POST' && req.url === TOKEN_PATH) {
+      try {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) {
+          chunks.push(chunk as Buffer);
+        }
+        const { token } = await resolveUpstreamEndpoints(auth);
+        const upstream = await forwardTokenRequest(
+          Buffer.concat(chunks).toString('utf8'),
+          req.headers.authorization,
+          token
+        );
+
+        res.writeHead(upstream.status, { 'Content-Type': upstream.contentType });
+        res.end(upstream.body);
+      } catch (error) {
+        console.error(`Token request could not be forwarded: ${error}`);
         res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'authorization_server_unavailable' }));
       }

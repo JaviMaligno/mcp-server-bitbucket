@@ -160,6 +160,103 @@ async function verifyBearer(authorization, config) {
   return { ok: true, subject: typeof payload.sub === "string" ? payload.sub : void 0, caller };
 }
 
+// src/oauth-proxy.ts
+var AUTHORIZE_PATH = "/oauth/authorize";
+var TOKEN_PATH = "/oauth/token";
+var DEFAULT_REDIRECT_ALLOWLIST = [
+  "https://claude.ai/api/mcp/auth_callback",
+  "https://claude.com/api/mcp/auth_callback"
+];
+function getProxyConfig(auth, env = process.env) {
+  const configured = (env.MCP_OAUTH_REDIRECT_ALLOWLIST || "").split(/[\s,]+/).filter(Boolean);
+  return {
+    origin: serverOrigin(auth),
+    upstreamScope: (env.MCP_OAUTH_UPSTREAM_SCOPE || "").trim() || [...auth.advertisedScopes ?? [], "offline_access"].join(" ").trim(),
+    redirectAllowlist: configured.length > 0 ? configured : DEFAULT_REDIRECT_ALLOWLIST
+  };
+}
+function proxyAuthorizationServerMetadata(auth, proxy) {
+  return {
+    issuer: proxy.origin,
+    authorization_endpoint: `${proxy.origin}${AUTHORIZE_PATH}`,
+    token_endpoint: `${proxy.origin}${TOKEN_PATH}`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: [
+      "client_secret_post",
+      "client_secret_basic",
+      "none"
+    ],
+    ...auth.advertisedScopes ? { scopes_supported: auth.advertisedScopes } : {}
+  };
+}
+function buildAuthorizeRedirect(requestUrl, proxy, upstreamAuthorizeEndpoint) {
+  const redirectUri = requestUrl.searchParams.get("redirect_uri");
+  if (!redirectUri) {
+    return { status: 400, error: "invalid_request", description: "redirect_uri is required" };
+  }
+  if (!proxy.redirectAllowlist.includes(redirectUri)) {
+    return {
+      status: 400,
+      error: "invalid_request",
+      description: "redirect_uri is not allowed for this server"
+    };
+  }
+  const upstream = new URL(upstreamAuthorizeEndpoint);
+  const passthrough = [
+    "client_id",
+    "response_type",
+    "redirect_uri",
+    "state",
+    "code_challenge",
+    "code_challenge_method",
+    "prompt",
+    "login_hint"
+  ];
+  for (const name of passthrough) {
+    const value = requestUrl.searchParams.get(name);
+    if (value !== null) {
+      upstream.searchParams.set(name, value);
+    }
+  }
+  upstream.searchParams.set("scope", proxy.upstreamScope);
+  return { status: 302, location: upstream.toString() };
+}
+function buildTokenRequestBody(rawBody) {
+  const params = new URLSearchParams(rawBody);
+  params.delete("resource");
+  return params;
+}
+async function forwardTokenRequest(rawBody, authorizationHeader, upstreamTokenEndpoint, fetchImpl = fetch) {
+  const response = await fetchImpl(upstreamTokenEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      ...authorizationHeader ? { Authorization: authorizationHeader } : {}
+    },
+    body: buildTokenRequestBody(rawBody).toString()
+  });
+  return {
+    status: response.status,
+    body: await response.text(),
+    contentType: response.headers.get("content-type") ?? "application/json"
+  };
+}
+async function resolveUpstreamEndpoints(auth, fetchImpl = fetch) {
+  const metadata = await authorizationServerMetadata(auth, fetchImpl);
+  const authorize = metadata.authorization_endpoint;
+  const token = metadata.token_endpoint;
+  if (typeof authorize !== "string" || typeof token !== "string") {
+    throw new Error("Issuer configuration is missing authorization_endpoint or token_endpoint");
+  }
+  return { authorize, token };
+}
+function redactUrlForLog(url) {
+  const [path, query] = url.split("?");
+  return query ? `${path}?<redacted>` : path;
+}
+
 // src/settings.ts
 import { z } from "zod";
 var settingsSchema = z.object({
@@ -3113,7 +3210,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.16.1";
+var VERSION = "0.17.0";
 function createServer() {
   const server = new Server(
     {
@@ -3208,6 +3305,7 @@ async function startHttp() {
   const port = parseInt(process.env.PORT || "3000", 10);
   const sessions = /* @__PURE__ */ new Map();
   const auth = getAuthConfig();
+  const proxy = auth ? getProxyConfig(auth) : null;
   const httpServer = createHttpServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE");
@@ -3221,7 +3319,7 @@ async function startHttp() {
     const clientIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
     res.on("finish", () => {
       console.error(
-        `${req.method} ${req.url} -> ${res.statusCode} from ${clientIp}${callerLabel ? ` (${callerLabel})` : ""}`
+        `${req.method} ${redactUrlForLog(req.url ?? "")} -> ${res.statusCode} from ${clientIp}${callerLabel ? ` (${callerLabel})` : ""}`
       );
     });
     let callerLabel = "";
@@ -3235,13 +3333,46 @@ async function startHttp() {
       res.end(JSON.stringify(protectedResourceMetadata(auth)));
       return;
     }
-    if (auth?.proxyAuthorizationServerMetadata && req.method === "GET" && req.url === AS_METADATA_PATH) {
+    if (auth && proxy && req.method === "GET" && req.url === AS_METADATA_PATH) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(proxyAuthorizationServerMetadata(auth, proxy)));
+      return;
+    }
+    if (auth && proxy && req.method === "GET" && req.url?.startsWith(AUTHORIZE_PATH)) {
       try {
-        const metadata = await authorizationServerMetadata(auth);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(metadata));
+        const { authorize } = await resolveUpstreamEndpoints(auth);
+        const requestUrl = new URL(req.url, proxy.origin);
+        const result = buildAuthorizeRedirect(requestUrl, proxy, authorize);
+        if (result.status === 302) {
+          res.writeHead(302, { Location: result.location });
+          res.end();
+        } else {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: result.error, error_description: result.description }));
+        }
       } catch (error) {
-        console.error(`Failed to build authorization server metadata: ${error}`);
+        console.error(`Authorization request could not be forwarded: ${error}`);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "authorization_server_unavailable" }));
+      }
+      return;
+    }
+    if (auth && proxy && req.method === "POST" && req.url === TOKEN_PATH) {
+      try {
+        const chunks = [];
+        for await (const chunk of req) {
+          chunks.push(chunk);
+        }
+        const { token } = await resolveUpstreamEndpoints(auth);
+        const upstream = await forwardTokenRequest(
+          Buffer.concat(chunks).toString("utf8"),
+          req.headers.authorization,
+          token
+        );
+        res.writeHead(upstream.status, { "Content-Type": upstream.contentType });
+        res.end(upstream.body);
+      } catch (error) {
+        console.error(`Token request could not be forwarded: ${error}`);
         res.writeHead(502, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "authorization_server_unavailable" }));
       }
