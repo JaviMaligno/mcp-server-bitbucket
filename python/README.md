@@ -74,8 +74,10 @@ claude mcp add bitbucket -s user \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `BITBUCKET_WORKSPACE` | ✅ | Bitbucket workspace slug |
-| `BITBUCKET_EMAIL` | ✅ | Account email for Basic Auth |
-| `BITBUCKET_API_TOKEN` | ✅ | Repository access token |
+| `BITBUCKET_EMAIL` | ✅ (basic auth) | Account email for Basic Auth |
+| `BITBUCKET_API_TOKEN` | ✅ | Atlassian API token (Basic auth) |
+| `BITBUCKET_OAUTH_TOKEN` | | Access token sent as `Authorization: Bearer` |
+| `BITBUCKET_AUTH_TYPE` | | Force auth mode: `basic` or `bearer` (auto-detected) |
 | `API_TIMEOUT` | | Request timeout in seconds (default: 30) |
 | `MAX_RETRIES` | | Max retry attempts for rate limiting (default: 3) |
 

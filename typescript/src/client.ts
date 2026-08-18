@@ -75,15 +75,24 @@ export class BitbucketClient {
     this.workspace = settings.bitbucketWorkspace;
     this.maxRetries = settings.maxRetries;
 
+    // Access tokens (workspace/project/repository) only authenticate with
+    // `Authorization: Bearer`; Atlassian API tokens use Basic email:token.
+    const useBearer = settings.bitbucketAuthType === 'bearer';
+
     this.client = axios.create({
       baseURL: BitbucketClient.BASE_URL,
       timeout: settings.apiTimeout * 1000,
-      auth: {
-        username: settings.bitbucketEmail,
-        password: settings.bitbucketApiToken,
-      },
+      ...(useBearer
+        ? {}
+        : {
+            auth: {
+              username: settings.bitbucketEmail,
+              password: settings.bitbucketApiToken,
+            },
+          }),
       headers: {
         'Content-Type': 'application/json',
+        ...(useBearer ? { Authorization: `Bearer ${settings.bitbucketApiToken}` } : {}),
       },
     });
   }

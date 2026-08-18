@@ -47,6 +47,7 @@ class BitbucketClient:
         api_token: Optional[str] = None,
         timeout: Optional[int] = None,
         max_retries: Optional[int] = None,
+        auth_type: Optional[str] = None,
     ):
         """Initialize Bitbucket client.
 
@@ -56,11 +57,15 @@ class BitbucketClient:
             api_token: Bitbucket access token (default from settings)
             timeout: Request timeout in seconds (default from settings)
             max_retries: Max retry attempts for rate limiting (default from settings)
+            auth_type: "basic" (email + API token) or "bearer" (access token).
+                Defaults to the resolved setting. Access tokens
+                (workspace/project/repository) only work with bearer.
         """
         settings = get_settings()
 
         self.workspace = workspace or settings.bitbucket_workspace
         self.email = email or settings.bitbucket_email
+        self.auth_type = auth_type or settings.bitbucket_auth_type or "basic"
         # Handle SecretStr - get the secret value if it's a SecretStr
         token = api_token or settings.bitbucket_api_token
         self.api_token = token.get_secret_value() if hasattr(token, "get_secret_value") else token
@@ -75,11 +80,18 @@ class BitbucketClient:
     def _get_http_client(self) -> httpx.Client:
         """Get or create the HTTP client with connection pooling."""
         if self._client is None:
-            self._client = httpx.Client(
-                timeout=self.timeout,
-                auth=(self.email, self.api_token),
-                follow_redirects=True,
-            )
+            if self.auth_type == "bearer":
+                self._client = httpx.Client(
+                    timeout=self.timeout,
+                    headers={"Authorization": f"Bearer {self.api_token}"},
+                    follow_redirects=True,
+                )
+            else:
+                self._client = httpx.Client(
+                    timeout=self.timeout,
+                    auth=(self.email, self.api_token),
+                    follow_redirects=True,
+                )
         return self._client
 
     def close(self) -> None:
@@ -96,8 +108,10 @@ class BitbucketClient:
         """Context manager exit - close client."""
         self.close()
 
-    def _get_auth(self) -> tuple[str, str]:
-        """Get auth tuple for Basic Auth requests."""
+    def _get_auth(self) -> Optional[tuple[str, str]]:
+        """Get auth tuple for Basic Auth requests (None when using bearer)."""
+        if self.auth_type == "bearer":
+            return None
         return (self.email, self.api_token)
 
     def _url(self, path: str) -> str:
