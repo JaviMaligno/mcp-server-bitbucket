@@ -67,6 +67,11 @@ claude mcp add bitbucket -s user \
 
 **[Full Installation Guide](https://github.com/JaviMaligno/mcp-server-bitbucket/blob/main/docs/INSTALLATION.md)** - Includes API token creation, permissions setup, and troubleshooting.
 
+### Hosted
+
+If you'd rather not run the server yourself, a hosted deployment is available on
+[Fronteir AI](https://fronteir.ai/mcp/javimaligno-mcp-server-bitbucket).
+
 ## Configuration
 
 ### Environment Variables
@@ -319,9 +324,27 @@ uv run python -m src.server
    - **Pipelines**: Read, Write
 5. Copy the token immediately
 
+## Using this at work
+
+If your team is running this against a company Bitbucket, I'd like to know. It
+decides what gets built next, and issues that come from a real deployment get
+looked at first.
+
+Two kinds of work I take on around this:
+
+- **An MCP server for an internal system that doesn't have one.** Same shape as
+  this one, against your own API.
+- **Help getting an MCP deployment past a security review** — scopes, token
+  handling, self-hosting the transport.
+
+Open an issue, or write to javier@javieraguilar.ai.
+
 ## Author
 
-Built by [Javier Aguilar](https://www.javieraguilar.ai) - AI Agent Architect specializing in multi-agent orchestration and MCP development.
+Built and maintained by [Javier Aguilar](https://www.javieraguilar.ai) — AI
+engineer working on agent systems and MCP integrations. There's a write-up of
+how and why this server was built
+[here](https://www.javieraguilar.ai/en/blog/mcp-server-bitbucket/).
 
 ## License
 
