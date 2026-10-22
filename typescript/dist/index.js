@@ -13,6 +13,44 @@ import {
   GetPromptRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { createServer as createHttpServer } from "http";
+import { pathToFileURL } from "url";
+import { realpathSync } from "fs";
+
+// src/http-input.ts
+var HttpInputError = class extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+};
+async function readHttpBody(source) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of source) {
+    bytes += chunk.byteLength;
+    if (bytes > 100 * 1024) throw new HttpInputError("Request body exceeds 100 KiB", 413);
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+function parseMcpBody(body) {
+  const parsed = JSON.parse(body.toString("utf8"));
+  if (Array.isArray(parsed)) throw new HttpInputError("JSON-RPC batches are not supported");
+  if (parsed && typeof parsed === "object" && "method" in parsed && parsed.method === "tools/call") {
+    const pending = [parsed];
+    let elements = 0;
+    while (pending.length) {
+      const value = pending.pop();
+      if (value && typeof value === "object") {
+        const values = Object.values(value);
+        elements += values.length;
+        if (elements > 1e3) throw new HttpInputError("Tool input exceeds 1000 elements");
+        pending.push(...values);
+      }
+    }
+  }
+  return parsed;
+}
 
 // src/auth.ts
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -3347,12 +3385,11 @@ async function startStdio() {
   await server.connect(transport);
   console.error(`Bitbucket MCP Server v${VERSION} started (stdio)`);
 }
-async function startHttp() {
-  const port = parseInt(process.env.PORT || "3000", 10);
+function createHttpHandler() {
   const sessions = /* @__PURE__ */ new Map();
   const auth = getAuthConfig();
   const proxy = auth ? getProxyConfig(auth) : null;
-  const httpServer = createHttpServer(async (req, res) => {
+  return async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE");
     res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, mcp-session-id");
@@ -3404,16 +3441,13 @@ async function startHttp() {
       return;
     }
     if (auth && proxy && req.method === "POST" && req.url === REGISTER_PATH) {
-      const chunks = [];
-      for await (const chunk of req) {
-        chunks.push(chunk);
-      }
       let parsed = {};
       try {
-        parsed = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
-      } catch {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "invalid_request", error_description: "Body must be JSON" }));
+        parsed = JSON.parse((await readHttpBody(req.iterator({ destroyOnReturn: false }))).toString("utf8") || "{}");
+      } catch (error) {
+        const status = error instanceof HttpInputError ? error.status : 400;
+        res.writeHead(status, { "Content-Type": "application/json", Connection: "close" });
+        res.end(JSON.stringify({ error: "invalid_request", error_description: error instanceof HttpInputError ? error.message : "Body must be JSON" }));
         return;
       }
       const result = registerClient(parsed, proxy);
@@ -3428,19 +3462,21 @@ async function startHttp() {
     }
     if (auth && proxy && req.method === "POST" && req.url === TOKEN_PATH) {
       try {
-        const chunks = [];
-        for await (const chunk of req) {
-          chunks.push(chunk);
-        }
+        const body = await readHttpBody(req.iterator({ destroyOnReturn: false }));
         const { token } = await resolveUpstreamEndpoints(auth);
         const upstream = await forwardTokenRequest(
-          Buffer.concat(chunks).toString("utf8"),
+          body.toString("utf8"),
           req.headers.authorization,
           token
         );
         res.writeHead(upstream.status, { "Content-Type": upstream.contentType });
         res.end(upstream.body);
       } catch (error) {
+        if (error instanceof HttpInputError) {
+          res.writeHead(error.status, { "Content-Type": "application/json", Connection: "close" });
+          res.end(JSON.stringify({ error: "invalid_request", error_description: error.message }));
+          return;
+        }
         console.error(`Token request could not be forwarded: ${error}`);
         res.writeHead(502, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "authorization_server_unavailable" }));
@@ -3466,10 +3502,24 @@ async function startHttp() {
         return;
       }
     }
+    let parsedBody;
+    if (req.method === "POST") {
+      try {
+        parsedBody = parseMcpBody(await readHttpBody(req.iterator({ destroyOnReturn: false })));
+      } catch (error) {
+        const status = error instanceof HttpInputError ? error.status : 400;
+        res.writeHead(status, { "Content-Type": "application/json", Connection: "close" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: {
+          code: -32600,
+          message: error instanceof HttpInputError ? error.message : "Invalid JSON"
+        } }));
+        return;
+      }
+    }
     const sessionId = req.headers["mcp-session-id"];
     if (sessionId && sessions.has(sessionId)) {
       const session = sessions.get(sessionId);
-      await session.transport.handleRequest(req, res);
+      await session.transport.handleRequest(req, res, parsedBody);
       return;
     }
     if (req.method === "POST" && !sessionId) {
@@ -3483,7 +3533,7 @@ async function startHttp() {
         server.close();
       };
       await server.connect(transport);
-      await transport.handleRequest(req, res);
+      await transport.handleRequest(req, res, parsedBody);
       const newSessionId = res.getHeader("mcp-session-id");
       if (newSessionId) {
         sessions.set(newSessionId, { server, transport });
@@ -3492,7 +3542,12 @@ async function startHttp() {
     }
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Invalid or missing session" }));
-  });
+  };
+}
+async function startHttp() {
+  const port = parseInt(process.env.PORT || "3000", 10);
+  const auth = getAuthConfig();
+  const httpServer = createHttpServer(createHttpHandler());
   httpServer.listen(port, () => {
     const mode = auth ? `OAuth required (issuer ${auth.issuer})` : "unauthenticated";
     console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port} \u2014 ${mode}`);
@@ -3512,7 +3567,12 @@ async function main() {
     await startStdio();
   }
 }
-main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  main().catch((error) => {
+    console.error("Fatal error:", error);
+    process.exit(1);
+  });
+}
+export {
+  createHttpHandler
+};

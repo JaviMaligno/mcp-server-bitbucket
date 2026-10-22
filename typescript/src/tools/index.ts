@@ -3,9 +3,6 @@
  */
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { getClient } from '../client.js';
-import { validateLimit, notFoundResponse, truncateHash, sanitizeSearchTerm } from '../utils.js';
-import { PRState, MergeStrategy, CommitStatusState } from '../types.js';
 
 // Import tool handlers from separate files
 import * as repositoryTools from './repositories.js';

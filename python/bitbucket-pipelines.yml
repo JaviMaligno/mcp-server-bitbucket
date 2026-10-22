@@ -1,4 +1,4 @@
-image: python:3.12
+image: python:3.12.15
 
 definitions:
   caches:
@@ -11,9 +11,9 @@ pipelines:
         caches:
           - uv
         script:
-          - curl -LsSf https://astral.sh/uv/install.sh | sh
+          - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
           - source $HOME/.local/bin/env
-          - uv sync --dev
+          - uv sync --frozen --dev
           - uv run pytest -v --cov=src --cov-report=term-missing
 
   pull-requests:
@@ -23,9 +23,9 @@ pipelines:
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
             - source $HOME/.local/bin/env
-            - uv sync --dev
+            - uv sync --frozen --dev
             - uv run pytest -v --cov=src --cov-report=term-missing
 
   branches:
@@ -35,16 +35,16 @@ pipelines:
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
             - source $HOME/.local/bin/env
-            - uv sync --dev
+            - uv sync --frozen --dev
             - uv run pytest -v --cov=src --cov-report=term-missing
       - step:
           name: Build Package
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
             - source $HOME/.local/bin/env
             - uv build
           artifacts:
@@ -57,9 +57,9 @@ pipelines:
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
             - source $HOME/.local/bin/env
-            - uv sync --dev
+            - uv sync --frozen --dev
             - uv run pytest -v
       - step:
           name: Build & Publish to PyPI
@@ -67,7 +67,7 @@ pipelines:
             - uv
           deployment: production
           script:
-            - curl -LsSf https://astral.sh/uv/install.sh | sh
+            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
             - source $HOME/.local/bin/env
             - uv build
             - uv publish --token $PYPI_TOKEN

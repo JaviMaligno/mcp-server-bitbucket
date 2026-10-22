@@ -2,7 +2,7 @@
  * MCP Prompts for Bitbucket Server
  */
 
-import { Prompt, GetPromptResult, PromptMessage } from '@modelcontextprotocol/sdk/types.js';
+import { Prompt, GetPromptResult } from '@modelcontextprotocol/sdk/types.js';
 
 /**
  * Prompt definitions for the MCP server
