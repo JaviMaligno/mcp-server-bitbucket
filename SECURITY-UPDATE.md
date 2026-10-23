@@ -11,3 +11,31 @@ Bitbucket HTTP requests are authenticated before MCP body parsing. MCP, OAuth re
 The build uses tsup 8.5.0 deliberately: its official esbuild range is ^0.25.0, allowing a fixed compatible 0.25 release. tsup 8.5.1 instead constrains the Windows dev-server vulnerability branch to ^0.27.0. No incompatible esbuild override is introduced; ESM and declarations are rebuilt and the stdio protocol is checked against the resulting executable.
 
 Vite 8 additionally declares an optional esbuild ^0.27.0 || ^0.28.0 peer. The root dev dependency supplies corrected esbuild ^0.28.1 for that peer while tsup retains its own compatible ^0.25.0 dependency. Both ranges are respected; neither uses a forced out-of-range override.
+
+
+## Reconcile the advanced default branch (23 October 2026)
+
+Main aa6347d incorporated PR8's alternate-runtime and CA trust fixes after this
+security branch was reviewed. A normal merge preserves that history and combines
+its system-CA refresh, Node CA gate, Python alternate-pipeline directory/artifact
+fixes and trust checks with the reviewed local-source Docker distribution and
+SDK/runtime/lock updates. No application, tool, auth or provider behavior changes
+are made by this reconciliation.
+
+The Python lock remains the reviewed PR7 graph (including certifi2026.10.19,
+which is also main's corrected certificate floor). Neither an old SDK graph nor
+the published PyPI application replaces this checkout. uv0.13.5 is retained.
+The Python image uses that pinned uv to hash-verify global pip26.2.2 before pip
+execution; the alternate pipeline verifies the same wheel before executing it
+through PYTHONPATH. Build/setup gates check nonempty trust stores and reject the
+same compromised-CA fingerprint as incoming main, including pip/OS and app certifi.
+
+GitHub PR Draft keeps light validation; Ready runs the full existing suites and
+source-image checks. Main keeps package/artifact builds without repeating the PR
+suite. Tags retain their existing test/build/publish path. No tags or releases are
+created here. The separate alternate-host pipeline retains its existing trigger
+topology and main suites; it has not been executed during this reconciliation.
+
+Static conflict/YAML/lock/source preservation checks do not prove Linux image or
+shell runtime compatibility. Root must retain the final-head Ready hosted image
+and trust-gate evidence before merge; no local Docker or live server is started.

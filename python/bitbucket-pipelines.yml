@@ -11,10 +11,10 @@ pipelines:
         caches:
           - uv
         script:
-          - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
-          - source $HOME/.local/bin/env
+          - cd python
+          - sh scripts/bootstrap-uv.sh
           - uv sync --frozen --dev
-          - uv run pytest -v --cov=src --cov-report=term-missing
+          - uv run --frozen pytest -v --cov=src --cov-report=term-missing
 
   pull-requests:
     '**':
@@ -23,10 +23,10 @@ pipelines:
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
-            - source $HOME/.local/bin/env
+            - cd python
+            - sh scripts/bootstrap-uv.sh
             - uv sync --frozen --dev
-            - uv run pytest -v --cov=src --cov-report=term-missing
+            - uv run --frozen pytest -v --cov=src --cov-report=term-missing
 
   branches:
     main:
@@ -35,20 +35,21 @@ pipelines:
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
-            - source $HOME/.local/bin/env
+            - cd python
+            - sh scripts/bootstrap-uv.sh
             - uv sync --frozen --dev
-            - uv run pytest -v --cov=src --cov-report=term-missing
+            - uv run --frozen pytest -v --cov=src --cov-report=term-missing
       - step:
           name: Build Package
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
-            - source $HOME/.local/bin/env
+            - cd python
+            - sh scripts/bootstrap-uv.sh
+            - uv lock --check
             - uv build
           artifacts:
-            - dist/**
+            - python/dist/**
 
   tags:
     v*:
@@ -57,17 +58,18 @@ pipelines:
           caches:
             - uv
           script:
-            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
-            - source $HOME/.local/bin/env
+            - cd python
+            - sh scripts/bootstrap-uv.sh
             - uv sync --frozen --dev
-            - uv run pytest -v
+            - uv run --frozen pytest -v
       - step:
           name: Build & Publish to PyPI
           caches:
             - uv
           deployment: production
           script:
-            - curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh
-            - source $HOME/.local/bin/env
+            - cd python
+            - sh scripts/bootstrap-uv.sh
+            - uv lock --check
             - uv build
             - uv publish --token $PYPI_TOKEN
