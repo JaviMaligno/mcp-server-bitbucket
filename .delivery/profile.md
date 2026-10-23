@@ -8,9 +8,10 @@ Source: fetched origin/main and authenticated gh account · checked 2026-10-22
 
 ## ci
 - kind: GitHub Actions
-- on-push-branch: main tests and package builds
+- on-push-branch: main light validation and package builds; no repeated full test suites
+- on-ready-pr: full Python/TypeScript tests and local-source image checks
 - on-tag: tests and public package publishing; no tags in this task
-Source: .github/workflows/ci.yml · checked 2026-10-22
+Source: .github/workflows/ci.yml after main/PR7 reconciliation · checked 2026-10-23
 
 ## environments
 - test-env: local-and-ci-tests

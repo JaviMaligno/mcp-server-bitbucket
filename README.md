@@ -20,6 +20,9 @@ This repository contains both **TypeScript** and **Python** implementations:
 
 > **Note**: The TypeScript version is used for Smithery deployments. Both versions provide identical functionality.
 
+Use patched Node.js 22.23.4 or 24.22.1 for TypeScript, or Python 3.11+ for Python.
+See [the security update](SECURITY-UPDATE.md) for HTTP request bounds and reproducible image builds.
+
 ## Features
 
 - **Repositories**: get, create, delete, list, update (move to project, rename)

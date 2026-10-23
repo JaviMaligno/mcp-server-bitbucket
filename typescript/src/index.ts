@@ -21,7 +21,10 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpServer, type RequestListener } from 'node:http';
+import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { HttpInputError, parseMcpBody, readHttpBody } from './http-input.js';
 import {
   AS_METADATA_PATH,
   getAuthConfig,
@@ -158,8 +161,7 @@ async function startStdio(): Promise<void> {
   console.error(`Bitbucket MCP Server v${VERSION} started (stdio)`);
 }
 
-async function startHttp(): Promise<void> {
-  const port = parseInt(process.env.PORT || '3000', 10);
+export function createHttpHandler(): RequestListener {
   const sessions = new Map<string, { server: Server; transport: StreamableHTTPServerTransport }>();
 
   // OAuth protection for /mcp. Null when unconfigured, in which case the
@@ -169,7 +171,7 @@ async function startHttp(): Promise<void> {
   // src/oauth-proxy.ts for why going direct cannot work with Entra).
   const proxy = auth ? getProxyConfig(auth) : null;
 
-  const httpServer = createHttpServer(async (req, res) => {
+  return async (req, res) => {
     // CORS headers for remote MCP clients
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
@@ -245,17 +247,14 @@ async function startHttp(): Promise<void> {
     // Dynamic client registration: MCP clients refuse an authorization server
     // without it, so we hand back the client that already exists upstream.
     if (auth && proxy && req.method === 'POST' && req.url === REGISTER_PATH) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(chunk as Buffer);
-      }
-
       let parsed: unknown = {};
       try {
-        parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'invalid_request', error_description: 'Body must be JSON' }));
+        parsed = JSON.parse((await readHttpBody(req.iterator({ destroyOnReturn: false }))).toString('utf8') || '{}');
+      } catch (error) {
+        const status = error instanceof HttpInputError ? error.status : 400;
+        res.writeHead(status, { 'Content-Type': 'application/json', Connection: 'close' });
+        res.end(JSON.stringify({ error: 'invalid_request', error_description:
+          error instanceof HttpInputError ? error.message : 'Body must be JSON' }));
         return;
       }
 
@@ -273,13 +272,10 @@ async function startHttp(): Promise<void> {
     // Token exchange: forwarded verbatim, so the token stays the issuer's.
     if (auth && proxy && req.method === 'POST' && req.url === TOKEN_PATH) {
       try {
-        const chunks: Buffer[] = [];
-        for await (const chunk of req) {
-          chunks.push(chunk as Buffer);
-        }
+        const body = await readHttpBody(req.iterator({ destroyOnReturn: false }));
         const { token } = await resolveUpstreamEndpoints(auth);
         const upstream = await forwardTokenRequest(
-          Buffer.concat(chunks).toString('utf8'),
+          body.toString('utf8'),
           req.headers.authorization,
           token
         );
@@ -287,6 +283,11 @@ async function startHttp(): Promise<void> {
         res.writeHead(upstream.status, { 'Content-Type': upstream.contentType });
         res.end(upstream.body);
       } catch (error) {
+        if (error instanceof HttpInputError) {
+          res.writeHead(error.status, { 'Content-Type': 'application/json', Connection: 'close' });
+          res.end(JSON.stringify({ error: 'invalid_request', error_description: error.message }));
+          return;
+        }
         console.error(`Token request could not be forwarded: ${error}`);
         res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'authorization_server_unavailable' }));
@@ -317,13 +318,28 @@ async function startHttp(): Promise<void> {
       }
     }
 
+    // Authenticate first, then bound and parse input before the SDK validates it.
+    let parsedBody: unknown;
+    if (req.method === 'POST') {
+      try {
+        parsedBody = parseMcpBody(await readHttpBody(req.iterator({ destroyOnReturn: false })));
+      } catch (error) {
+        const status = error instanceof HttpInputError ? error.status : 400;
+        res.writeHead(status, { 'Content-Type': 'application/json', Connection: 'close' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: {
+          code: -32600, message: error instanceof HttpInputError ? error.message : 'Invalid JSON',
+        } }));
+        return;
+      }
+    }
+
     // Check for existing session
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     if (sessionId && sessions.has(sessionId)) {
       // Existing session — route to its transport
       const session = sessions.get(sessionId)!;
-      await session.transport.handleRequest(req, res);
+      await session.transport.handleRequest(req, res, parsedBody);
       return;
     }
 
@@ -341,7 +357,7 @@ async function startHttp(): Promise<void> {
       };
 
       await server.connect(transport);
-      await transport.handleRequest(req, res);
+      await transport.handleRequest(req, res, parsedBody);
 
       // Capture the session ID that was generated
       const newSessionId = res.getHeader('mcp-session-id') as string | undefined;
@@ -354,8 +370,13 @@ async function startHttp(): Promise<void> {
     // Session not found
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Invalid or missing session' }));
-  });
+  };
+}
 
+async function startHttp(): Promise<void> {
+  const port = parseInt(process.env.PORT || '3000', 10);
+  const auth = getAuthConfig();
+  const httpServer = createHttpServer(createHttpHandler());
   httpServer.listen(port, () => {
     const mode = auth ? `OAuth required (issuer ${auth.issuer})` : 'unauthenticated';
     console.error(`Bitbucket MCP Server v${VERSION} started (http) on port ${port} — ${mode}`);
@@ -380,7 +401,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// Importing the handler for in-memory contracts must not start a listener.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  main().catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}
