@@ -3459,7 +3459,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.18.1";
+var VERSION = "0.19.0";
 function createServer() {
   const server = new Server(
     {

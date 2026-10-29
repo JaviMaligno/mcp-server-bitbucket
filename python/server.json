@@ -7,12 +7,12 @@
     "url": "https://github.com/JaviMaligno/mcp-server-bitbucket",
     "source": "github"
   },
-  "version": "0.10.0",
+  "version": "0.13.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "mcp-server-bitbucket",
-      "version": "0.10.0",
+      "version": "0.13.0",
       "transport": {
         "type": "stdio"
       },
@@ -49,4 +49,3 @@
     }
   ]
 }
-
