@@ -119,7 +119,7 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-## Available Tools (58 total)
+## Available Tools (62 total)
 
 ### Repositories
 | Tool | Description |
@@ -189,17 +189,23 @@ trigger_pipeline(
 )
 ```
 
+See [history queries, pagination and retry behavior](../docs/HISTORY.md).
+
 ### Branches, Commits, Tags
 | Tool | Description |
 |------|-------------|
 | `list_branches` | List branches |
 | `get_branch` | Get branch details |
-| `list_commits` | List commits |
+| `list_commits` | Paginated history with revision include/exclude and path filters |
 | `get_commit` | Get commit details |
-| `compare_commits` | Compare branches |
+| `compare_commits` | Paginated changed-file statistics from base to head |
+| `get_commit_diff` | Raw diff, optionally by file, with explicit chunk continuation |
+| `get_merge_base` | Best common ancestor of two revisions |
+| `get_file_history` | Paginated file history with paths reported across renames |
 | `get_commit_statuses` | Get build statuses |
 | `create_commit_status` | Report CI status |
-| `list_tags` | List tags |
+| `list_tags` | Paginated tags with filtering and configurable sorting |
+| `get_tag` | Resolve an exact tag to its full target commit hash |
 | `create_tag` | Create a tag |
 | `delete_tag` | Delete a tag |
 

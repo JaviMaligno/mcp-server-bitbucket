@@ -443,14 +443,17 @@ var BitbucketClient = class _BitbucketClient {
   workspace;
   client;
   maxRetries;
+  requestTimeout;
   constructor() {
     const settings = getSettings();
     this.workspace = settings.bitbucketWorkspace;
     this.maxRetries = settings.maxRetries;
+    this.requestTimeout = settings.apiTimeout * 1e3;
     const useBearer = settings.bitbucketAuthType === "bearer";
     this.client = axios.create({
       baseURL: _BitbucketClient.BASE_URL,
-      timeout: settings.apiTimeout * 1e3,
+      timeout: this.requestTimeout,
+      paramsSerializer: { indexes: null },
       ...useBearer ? {} : {
         auth: {
           username: settings.bitbucketEmail,
@@ -470,103 +473,126 @@ var BitbucketClient = class _BitbucketClient {
     const base = `repositories/${this.workspace}/${repoSlug}`;
     return parts.length > 0 ? `${base}/${parts.join("/")}` : base;
   }
-  /**
-   * Make an API request with retry logic for rate limiting
-   */
-  async request(method, path, data, params) {
+  encodeRef(ref) {
+    if (!ref || ref.split("/").some((part) => part === "." || part === "..")) throw new BitbucketError("Invalid revision name");
+    return encodeURIComponent(ref);
+  }
+  encodeFilePath(path) {
+    if (path.startsWith("/") || path.split("/").some((part) => part === "." || part === "..")) {
+      throw new BitbucketError("Invalid repository file path");
+    }
+    return path.split("/").map(encodeURIComponent).join("/");
+  }
+  /** Retry only reads after ambiguous network/server failures; writes may retry 429. */
+  async request(method, path, data, params, text = false) {
     let backoff = _BitbucketClient.INITIAL_BACKOFF;
+    let slept = 0;
+    const deadline = performance.now() + this.requestTimeout;
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) throw new BitbucketError("Request retry budget exhausted", void 0, method, path);
       try {
         const response = await this.client.request({
           method,
           url: path,
           data,
-          params
+          params,
+          timeout: Math.max(1, Math.floor(remaining)),
+          ...text ? { responseType: "text", transformResponse: [(value) => value] } : {}
         });
         return response.data;
       } catch (error) {
-        if (axios.isAxiosError(error)) {
-          const axiosError = error;
-          if (axiosError.response?.status === 404) {
-            return null;
+        if (!axios.isAxiosError(error)) throw error;
+        const status = error.response?.status;
+        if (status === 404) return null;
+        const abortedBody = error.code === "ERR_BAD_RESPONSE" && error.message === "stream has been aborted";
+        const network = abortedBody || !error.response && ["ECONNRESET", "ECONNREFUSED", "ECONNABORTED", "ETIMEDOUT", "EPIPE", "EAI_AGAIN", "ENOTFOUND", "ERR_NETWORK"].includes(error.code || "");
+        const retryable = status === 429 || method === "GET" && (network || [502, 503, 504].includes(status ?? 0));
+        if (retryable && attempt < this.maxRetries) {
+          const header = error.response?.headers["retry-after"];
+          let wait = backoff;
+          if (typeof header === "string" && header.trim()) {
+            const numeric = Number(header);
+            const dated = /[a-z]/i.test(header) && !["nan", "inf", "infinity"].includes(header.toLowerCase()) ? Date.parse(header) - Date.now() : NaN;
+            const parsed = Number.isFinite(numeric) && numeric >= 0 ? numeric * 1e3 : dated;
+            if (Number.isFinite(parsed) && parsed >= 0) wait = parsed;
           }
-          if (axiosError.response?.status === 429) {
-            if (attempt < this.maxRetries) {
-              const retryAfter = axiosError.response.headers["retry-after"];
-              const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1e3 : backoff;
-              await sleep(waitTime);
-              backoff *= 2;
-              continue;
-            }
-            throw new BitbucketError(
-              `Rate limited after ${this.maxRetries} retries`,
-              429,
-              method,
-              path
-            );
+          if (wait > 15e3 - slept || wait >= deadline - performance.now()) {
+            throw new BitbucketError("Retry-After exceeds request retry budget; retry later", status, method, path);
           }
-          const statusCode = axiosError.response?.status;
-          const errorText = JSON.stringify(axiosError.response?.data || axiosError.message).substring(0, 500);
-          throw new BitbucketError(
-            `API error ${statusCode}: ${errorText}`,
-            statusCode,
-            method,
-            path
-          );
+          await sleep(wait);
+          slept += wait;
+          backoff *= 2;
+          continue;
         }
-        throw error;
+        throw new BitbucketError(
+          network ? `Network request failed after ${attempt + 1} attempt(s)` : `API error ${status ?? "unknown"}`,
+          status,
+          method,
+          path
+        );
       }
     }
-    throw new BitbucketError(`Unexpected error in request`, void 0, method, path);
+    throw new BitbucketError("Request retry budget exhausted", void 0, method, path);
   }
-  /**
-   * Make a request that returns plain text
-   */
-  async requestText(path) {
-    let backoff = _BitbucketClient.INITIAL_BACKOFF;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+  requestText(path, params) {
+    return this.request("GET", path, void 0, params, true);
+  }
+  /** A next link can change only query parameters, never the authenticated endpoint. */
+  validateCursor(cursor, endpoint) {
+    const expected = new URL(endpoint, _BitbucketClient.BASE_URL + "/");
+    let parsed;
+    try {
+      parsed = new URL(cursor);
+    } catch {
+      throw new BitbucketError("Invalid pagination cursor");
+    }
+    const rawPath = cursor.split(/[?#]/, 1)[0].replace(/^https:\/\/[^/]+/, "");
+    const segments = rawPath.split("/");
+    const unsafeSegments = segments.some((segment) => {
+      let decoded;
       try {
-        const response = await this.client.get(path, {
-          responseType: "text"
-        });
-        return response.data;
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          if (error.response?.status === 404) {
-            return null;
-          }
-          if (error.response?.status === 429) {
-            if (attempt < this.maxRetries) {
-              const retryAfter = error.response.headers["retry-after"];
-              const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1e3 : backoff;
-              await sleep(waitTime);
-              backoff *= 2;
-              continue;
-            }
-          }
-          throw new BitbucketError(`Request failed: ${error.response?.status}`);
-        }
-        throw error;
+        decoded = decodeURIComponent(segment);
+      } catch {
+        return true;
       }
-    }
-    return null;
-  }
-  /**
-   * Helper for paginated list endpoints
-   */
-  async paginatedList(endpoint, options = {}) {
-    const { limit = 50, maxPage = 100, ...extraParams } = options;
-    const params = {
-      pagelen: Math.min(limit, maxPage),
-      ...extraParams
-    };
-    Object.keys(params).forEach((key) => {
-      if (params[key] === void 0) {
-        delete params[key];
-      }
+      return decoded === "." || decoded === ".." || decoded.includes("\\");
     });
-    const result = await this.request("GET", endpoint, void 0, params);
-    return result?.values || [];
+    if (parsed.protocol !== "https:" || parsed.hostname !== "api.bitbucket.org" || parsed.port && parsed.port !== "443" || parsed.username || parsed.password || parsed.hash || cursor.includes("\\") || unsafeSegments || parsed.pathname.replace(/\/$/, "") !== expected.pathname.replace(/\/$/, "")) {
+      throw new BitbucketError("Invalid pagination cursor for this endpoint");
+    }
+    return cursor;
+  }
+  async historyPage(endpoint, options = {}, allowMissing = false) {
+    const { limit = 50, cursor, maxPage = 100, ...filters } = options;
+    const params = { pagelen: Math.min(Math.max(1, Math.floor(limit)), maxPage), ...filters };
+    for (const key of Object.keys(params)) if (params[key] === void 0) delete params[key];
+    const result = await this.request(
+      "GET",
+      cursor ? this.validateCursor(cursor, endpoint) : endpoint,
+      void 0,
+      cursor ? void 0 : params
+    );
+    if (result === null && !allowMissing) {
+      throw new BitbucketError("History resource or revision not found (404)", 404, "GET", endpoint);
+    }
+    const next = result?.next ? this.validateCursor(result.next, endpoint) : null;
+    return { values: result?.values ?? [], has_more: next !== null, next_cursor: next };
+  }
+  async paginatedList(endpoint, options = {}) {
+    const limit = Math.max(1, Math.floor(options.limit ?? 50));
+    const values = [];
+    const visited = /* @__PURE__ */ new Set();
+    let cursor;
+    for (let pageCount = 0; pageCount < 1e3; pageCount++) {
+      const page = await this.historyPage(endpoint, { ...options, cursor }, true);
+      values.push(...page.values);
+      if (values.length >= limit || !page.next_cursor) return values.slice(0, limit);
+      if (visited.has(page.next_cursor)) throw new BitbucketError("Repeated pagination cursor");
+      visited.add(page.next_cursor);
+      cursor = page.next_cursor;
+    }
+    throw new BitbucketError("Pagination page budget exhausted");
   }
   // ==================== REPOSITORIES ====================
   async getRepository(repoSlug) {
@@ -935,21 +961,65 @@ var BitbucketClient = class _BitbucketClient {
     });
   }
   async getBranch(repoSlug, branchName) {
-    return this.request("GET", this.repoPath(repoSlug, "refs", "branches", branchName));
+    return this.request("GET", this.repoPath(repoSlug, "refs", "branches", this.encodeRef(branchName)));
   }
   // ==================== COMMITS ====================
   async listCommits(repoSlug, options = {}) {
     return this.paginatedList(this.repoPath(repoSlug, "commits"), {
-      limit: options.limit || 20,
-      include: options.branch,
+      limit: options.limit ?? 20,
+      include: [...options.branch ? [options.branch] : [], ...options.include ?? []],
+      exclude: options.exclude,
+      path: options.path
+    });
+  }
+  listCommitsPage(repoSlug, options = {}) {
+    return this.historyPage(this.repoPath(repoSlug, "commits"), {
+      limit: options.limit ?? 20,
+      cursor: options.cursor,
+      include: [...options.branch ? [options.branch] : [], ...options.include ?? []],
+      exclude: options.exclude,
       path: options.path
     });
   }
   async getCommit(repoSlug, commit) {
-    return this.request("GET", this.repoPath(repoSlug, "commit", commit));
+    return this.request("GET", this.repoPath(repoSlug, "commit", this.encodeRef(commit)));
   }
-  async compareCommits(repoSlug, base, head) {
-    return this.request("GET", this.repoPath(repoSlug, "diffstat", `${base}..${head}`));
+  compareCommits(repoSlug, base, head) {
+    return this.request("GET", this.repoPath(repoSlug, "diffstat", this.revisionRange(base, head)), void 0, { topic: false });
+  }
+  async resolveComparisonRef(repoSlug, ref) {
+    this.encodeRef(ref);
+    const commit = await this.getCommit(repoSlug, ref);
+    if (!commit) throw new BitbucketError("Commit or revision not found (404)", 404, "GET");
+    if (!/^[a-fA-F0-9]{12,40}$/.test(commit.hash)) throw new BitbucketError("Invalid commit hash returned by Bitbucket");
+    return commit.hash.slice(0, 12).toLowerCase();
+  }
+  async compareCommitsPage(repoSlug, base, head, options = {}) {
+    const canonicalBase = await this.resolveComparisonRef(repoSlug, base);
+    const canonicalHead = await this.resolveComparisonRef(repoSlug, head);
+    return this.historyPage(this.repoPath(repoSlug, "diffstat", this.revisionRange(canonicalBase, canonicalHead)), {
+      limit: options.limit ?? 50,
+      cursor: options.cursor,
+      path: options.path,
+      topic: false
+    });
+  }
+  /** Bitbucket takes the source first, the opposite of git diff base head. */
+  revisionRange(base, head) {
+    return `${this.encodeRef(head)}..${this.encodeRef(base)}`;
+  }
+  getCommitDiff(repoSlug, base, head, options = {}) {
+    return this.requestText(this.repoPath(repoSlug, "diff", this.revisionRange(base, head)), { topic: false, path: options.path });
+  }
+  getMergeBase(repoSlug, base, head) {
+    return this.request("GET", this.repoPath(repoSlug, "merge-base", this.revisionRange(base, head)));
+  }
+  getFileHistory(repoSlug, path, ref = "main", options = {}) {
+    if (!path) throw new BitbucketError("File history requires a file path");
+    return this.historyPage(this.repoPath(repoSlug, "filehistory", this.encodeRef(ref), this.encodeFilePath(path)), {
+      limit: options.limit ?? 20,
+      cursor: options.cursor
+    });
   }
   async getCommitStatuses(repoSlug, commit, options = {}) {
     return this.paginatedList(this.repoPath(repoSlug, "commit", commit, "statuses"), {
@@ -1036,9 +1106,21 @@ var BitbucketClient = class _BitbucketClient {
   // ==================== TAGS ====================
   async listTags(repoSlug, options = {}) {
     return this.paginatedList(this.repoPath(repoSlug, "refs", "tags"), {
-      limit: options.limit || 50,
-      sort: "-target.date"
+      limit: options.limit ?? 50,
+      sort: options.sort ?? "-target.date",
+      q: options.query
     });
+  }
+  listTagsPage(repoSlug, options = {}) {
+    return this.historyPage(this.repoPath(repoSlug, "refs", "tags"), {
+      limit: options.limit ?? 50,
+      cursor: options.cursor,
+      sort: options.sort ?? "-target.date",
+      q: options.query
+    });
+  }
+  getTag(repoSlug, tagName) {
+    return this.request("GET", this.repoPath(repoSlug, "refs", "tags", this.encodeRef(tagName)));
   }
   async createTag(repoSlug, name, target, message) {
     const payload = {
@@ -1059,7 +1141,7 @@ var BitbucketClient = class _BitbucketClient {
     return result;
   }
   async deleteTag(repoSlug, tagName) {
-    await this.request("DELETE", this.repoPath(repoSlug, "refs", "tags", tagName));
+    await this.request("DELETE", this.repoPath(repoSlug, "refs", "tags", this.encodeRef(tagName)));
   }
   // ==================== BRANCH RESTRICTIONS ====================
   async listBranchRestrictions(repoSlug, options = {}) {
@@ -1099,10 +1181,10 @@ var BitbucketClient = class _BitbucketClient {
   }
   // ==================== SOURCE ====================
   async getFileContent(repoSlug, path, ref = "main") {
-    return this.requestText(this.repoPath(repoSlug, "src", ref, path));
+    return this.requestText(this.repoPath(repoSlug, "src", this.encodeRef(ref), this.encodeFilePath(path)));
   }
   async listDirectory(repoSlug, path = "", options = {}) {
-    const endpoint = path ? this.repoPath(repoSlug, "src", options.ref || "main", path) : this.repoPath(repoSlug, "src", options.ref || "main");
+    const endpoint = path ? this.repoPath(repoSlug, "src", this.encodeRef(options.ref || "main"), this.encodeFilePath(path)) : this.repoPath(repoSlug, "src", this.encodeRef(options.ref || "main"));
     return this.paginatedList(endpoint, { limit: options.limit || 100 });
   }
   // ==================== PERMISSIONS ====================
@@ -2086,12 +2168,15 @@ var handlers4 = {
 var definitions5 = [
   {
     name: "list_commits",
-    description: "List commits in a repository.",
+    description: "List a page of commits. Use include/exclude for commits between revisions (include=head, exclude=base); continue with next_cursor until has_more is false.",
     inputSchema: {
       type: "object",
       properties: {
         repo_slug: { type: "string", description: "Repository slug" },
-        branch: { type: "string", description: "Filter by branch name (optional)" },
+        branch: { type: "string", description: "Branch, tag or SHA to include (alias for include)" },
+        include: { type: "array", items: { type: "string" }, description: "Include commits reachable from these branches, tags or SHAs" },
+        exclude: { type: "array", items: { type: "string" }, description: "Exclude commits reachable from these revisions" },
+        cursor: { type: "string", description: "Opaque next_cursor from this tool; retains its page size and filters" },
         path: { type: "string", description: "Filter by file path - only commits that modified this path (optional)" },
         limit: { type: "number", description: "Maximum results (default: 20)", default: 20 }
       },
@@ -2112,14 +2197,42 @@ var definitions5 = [
   },
   {
     name: "compare_commits",
-    description: "Compare two commits or branches and see files changed.",
+    description: "Compare base to head (branches, tags or SHAs). Returns a page of changed files and line counts; follow next_cursor for all files.",
     inputSchema: {
       type: "object",
       properties: {
         repo_slug: { type: "string", description: "Repository slug" },
         base: { type: "string", description: "Base commit hash or branch name" },
-        head: { type: "string", description: "Head commit hash or branch name" }
+        head: { type: "string", description: "Head commit hash, tag or branch name" },
+        path: { type: "string", description: "Optional file path filter" },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+        cursor: { type: "string", description: "Opaque next_cursor; retains page size and filters" }
       },
+      required: ["repo_slug", "base", "head"]
+    }
+  },
+  {
+    name: "get_commit_diff",
+    description: "Get the raw Git-style diff from base to head. Continue large diffs with next_offset; pin revisions to commit hashes while paging. API-side diff limits still apply.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo_slug: { type: "string" },
+        base: { type: "string" },
+        head: { type: "string" },
+        path: { type: "string", description: "Optional file path filter" },
+        offset: { type: "integer", minimum: 0, default: 0 },
+        max_chars: { type: "integer", minimum: 1, maximum: 1e5, default: 2e4 }
+      },
+      required: ["repo_slug", "base", "head"]
+    }
+  },
+  {
+    name: "get_merge_base",
+    description: "Get a best common ancestor of two branches, tags or commit hashes. Bitbucket returns one ancestor when multiple best ancestors exist.",
+    inputSchema: {
+      type: "object",
+      properties: { repo_slug: { type: "string" }, base: { type: "string" }, head: { type: "string" } },
       required: ["repo_slug", "base", "head"]
     }
   },
@@ -2157,18 +2270,18 @@ var definitions5 = [
 var handlers5 = {
   list_commits: async (args) => {
     const client = getClient();
-    const commits = await client.listCommits(args.repo_slug, {
+    const page = await client.listCommitsPage(args.repo_slug, {
       branch: args.branch,
+      include: args.include,
+      exclude: args.exclude,
       path: args.path,
-      limit: validateLimit(args.limit || 20)
+      cursor: args.cursor,
+      limit: validateLimit(args.limit ?? 20)
     });
     return {
-      commits: commits.map((c) => ({
-        hash: truncateHash(c.hash),
-        message: c.message,
-        author: c.author?.raw,
-        date: c.date
-      }))
+      commits: page.values.map((c) => ({ hash: truncateHash(c.hash), message: c.message, author: c.author?.raw, date: c.date })),
+      has_more: page.has_more,
+      next_cursor: page.next_cursor
     };
   },
   get_commit: async (args) => {
@@ -2187,23 +2300,32 @@ var handlers5 = {
   },
   compare_commits: async (args) => {
     const client = getClient();
-    const result = await client.compareCommits(
-      args.repo_slug,
-      args.base,
-      args.head
-    );
-    if (!result) {
-      return { error: `Could not compare ${args.base}..${args.head}` };
-    }
-    const files = result.values || [];
+    const page = await client.compareCommitsPage(args.repo_slug, args.base, args.head, {
+      path: args.path,
+      limit: validateLimit(args.limit ?? 50),
+      cursor: args.cursor
+    });
+    const files = page.values;
     return {
-      files: files.slice(0, 50).map((f) => ({
-        path: f.new?.path || f.old?.path,
-        status: f.status,
-        "+": f.lines_added || 0,
-        "-": f.lines_removed || 0
-      }))
+      files: files.map((f) => ({ path: f.new?.path || f.old?.path, status: f.status, "+": f.lines_added || 0, "-": f.lines_removed || 0 })),
+      has_more: page.has_more,
+      next_cursor: page.next_cursor
     };
+  },
+  get_commit_diff: async (args) => {
+    const offset = args.offset === void 0 ? 0 : Number(args.offset);
+    const maxChars = args.max_chars === void 0 ? 2e4 : Number(args.max_chars);
+    if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxChars) || maxChars < 1 || maxChars > 1e5) {
+      return { success: false, error: "offset must be a nonnegative integer; max_chars must be an integer between 1 and 100000" };
+    }
+    const diff = await getClient().getCommitDiff(args.repo_slug, args.base, args.head, { path: args.path });
+    if (diff === null) return notFoundResponse("Diff", `${args.base}..${args.head}`);
+    const end = Math.min(offset + maxChars, diff.length);
+    return { diff: diff.slice(offset, end), offset, next_offset: end < diff.length ? end : null, truncated: end < diff.length, total_chars: diff.length };
+  },
+  get_merge_base: async (args) => {
+    const result = await getClient().getMergeBase(args.repo_slug, args.base, args.head);
+    return result ? { hash: result.hash, message: result.message, author: result.author?.raw, date: result.date, parents: result.parents?.map((p) => truncateHash(p.hash)) } : notFoundResponse("Common ancestor", `${args.base}..${args.head}`);
   },
   get_commit_statuses: async (args) => {
     const client = getClient();
@@ -2452,15 +2574,23 @@ var handlers7 = {
 var definitions8 = [
   {
     name: "list_tags",
-    description: "List tags in a repository.",
+    description: "List a page of tags, optionally filtered with Bitbucket query syntax and sorted (name uses natural version order). Follow next_cursor for all tags.",
     inputSchema: {
       type: "object",
       properties: {
         repo_slug: { type: "string", description: "Repository slug" },
-        limit: { type: "number", description: "Maximum results (default: 50)", default: 50 }
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+        query: { type: "string", description: 'Bitbucket filter, e.g. name ~ "v2" or target.hash = "full-sha"' },
+        sort: { type: "string", description: "Sort field, e.g. name, -name, -target.date", default: "-target.date" },
+        cursor: { type: "string", description: "Opaque next_cursor; retains page size and filters" }
       },
       required: ["repo_slug"]
     }
+  },
+  {
+    name: "get_tag",
+    description: "Get a specific tag and its target commit without scanning tag pages.",
+    inputSchema: { type: "object", properties: { repo_slug: { type: "string" }, tag_name: { type: "string" } }, required: ["repo_slug", "tag_name"] }
   },
   {
     name: "create_tag",
@@ -2492,18 +2622,27 @@ var definitions8 = [
 var handlers8 = {
   list_tags: async (args) => {
     const client = getClient();
-    const tags = await client.listTags(args.repo_slug, {
-      limit: validateLimit(args.limit || 50)
+    const page = await client.listTagsPage(args.repo_slug, {
+      limit: validateLimit(args.limit ?? 50),
+      query: args.query,
+      sort: args.sort,
+      cursor: args.cursor
     });
     return {
-      tags: tags.map((t) => ({
+      tags: page.values.map((t) => ({
         name: t.name,
         target: truncateHash(t.target?.hash),
         message: t.message,
         date: t.target?.date,
         tagger: t.tagger?.raw
-      }))
+      })),
+      has_more: page.has_more,
+      next_cursor: page.next_cursor
     };
+  },
+  get_tag: async (args) => {
+    const tag = await getClient().getTag(args.repo_slug, args.tag_name);
+    return tag ? { name: tag.name, target: tag.target?.hash, message: tag.message, date: tag.date, tagger: tag.tagger?.raw } : notFoundResponse("Tag", args.tag_name);
   },
   create_tag: async (args) => {
     const client = getClient();
@@ -2626,6 +2765,21 @@ var definitions10 = [
     }
   },
   {
+    name: "get_file_history",
+    description: "List file-history paths and full commit hashes at a branch, tag or SHA. Use get_commit for author, message and date. Follow next_cursor for older changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo_slug: { type: "string" },
+        path: { type: "string" },
+        ref: { type: "string", default: "main" },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+        cursor: { type: "string", description: "Opaque next_cursor; retains page size and filters" }
+      },
+      required: ["repo_slug", "path"]
+    }
+  },
+  {
     name: "list_directory",
     description: "List contents of a directory in a repository. Browse repository structure without cloning.",
     inputSchema: {
@@ -2653,6 +2807,17 @@ var handlers10 = {
       ref,
       content,
       size: content.length
+    };
+  },
+  get_file_history: async (args) => {
+    const page = await getClient().getFileHistory(args.repo_slug, args.path, args.ref || "main", {
+      limit: validateLimit(args.limit ?? 20),
+      cursor: args.cursor
+    });
+    return {
+      history: page.values.map((entry) => ({ path: entry.path, commit: { hash: entry.commit.hash } })),
+      has_more: page.has_more,
+      next_cursor: page.next_cursor
     };
   },
   list_directory: async (args) => {
@@ -3294,7 +3459,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.18.1";
+var VERSION = "0.19.0";
 function createServer() {
   const server = new Server(
     {

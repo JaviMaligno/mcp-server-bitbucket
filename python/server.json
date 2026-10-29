@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.JaviMaligno/bitbucket",
   "title": "Bitbucket MCP Server",
-  "description": "MCP server for Bitbucket API operations. Provides 58 tools for managing repositories, pull requests, pipelines, branches, commits, deployments, webhooks, tags, branch restrictions, source browsing, and repository permissions.",
+  "description": "MCP server for Bitbucket API operations. Provides 62 tools for managing repositories, pull requests, pipelines, branches, commits, deployments, webhooks, tags, branch restrictions, source browsing, and repository permissions.",
   "repository": {
     "url": "https://github.com/JaviMaligno/mcp-server-bitbucket",
     "source": "github"
   },
-  "version": "0.10.0",
+  "version": "0.13.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "mcp-server-bitbucket",
-      "version": "0.10.0",
+      "version": "0.13.0",
       "transport": {
         "type": "stdio"
       },
@@ -49,4 +49,3 @@
     }
   ]
 }
-

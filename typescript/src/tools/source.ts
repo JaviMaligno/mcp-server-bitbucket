@@ -21,6 +21,19 @@ export const definitions: Tool[] = [
     },
   },
   {
+    name: 'get_file_history',
+    description: 'List file-history paths and full commit hashes at a branch, tag or SHA. Use get_commit for author, message and date. Follow next_cursor for older changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_slug: { type: 'string' }, path: { type: 'string' }, ref: { type: 'string', default: 'main' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+        cursor: { type: 'string', description: 'Opaque next_cursor; retains page size and filters' },
+      },
+      required: ['repo_slug', 'path'],
+    },
+  },
+  {
     name: 'list_directory',
     description: 'List contents of a directory in a repository. Browse repository structure without cloning.',
     inputSchema: {
@@ -51,6 +64,16 @@ export const handlers: Record<string, (args: Record<string, unknown>) => Promise
       ref,
       content,
       size: content.length,
+    };
+  },
+
+  get_file_history: async (args) => {
+    const page = await getClient().getFileHistory(args.repo_slug as string, args.path as string, (args.ref as string) || 'main', {
+      limit: validateLimit((args.limit as number) ?? 20), cursor: args.cursor as string,
+    });
+    return {
+      history: page.values.map(entry => ({ path: entry.path, commit: { hash: entry.commit.hash } })),
+      has_more: page.has_more, next_cursor: page.next_cursor,
     };
   },
 

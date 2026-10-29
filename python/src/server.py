@@ -776,27 +776,26 @@ def get_branch(repo_slug: str, branch_name: str) -> dict:
 @handle_bitbucket_error
 @formatted
 def list_commits(
-    repo_slug: str,
-    branch: Optional[str] = None,
-    path: Optional[str] = None,
-    limit: int = 20,
+    repo_slug: str, branch: Optional[str] = None, path: Optional[str] = None,
+    limit: int = 20, include: Optional[list[str]] = None,
+    exclude: Optional[list[str]] = None, cursor: Optional[str] = None,
 ) -> dict:
-    """List commits in a repository.
+    """List a page of commits, newest first, without cloning.
 
-    Args:
-        repo_slug: Repository slug
-        branch: Filter by branch name (optional)
-        path: Filter by file path - only commits that modified this path (optional)
-        limit: Maximum number of results (default: 20)
-
-    Returns:
-        List of commits with hash, message, author, and date
+    include selects commits reachable from any supplied branch/tag/hash; exclude
+    removes commits reachable from those revisions. For commits in v2 but not v1,
+    use include=["v2"], exclude=["v1"]. branch is an additional include alias.
+    path restricts changes to a file/directory. Follow next_cursor until has_more
+    is false. cursor preserves its issued filters/page size; limit (1-100) and
+    filters apply only to the first page. Absence from one page is not absence
+    from repository history.
     """
-    client = get_client()
-    commits = client.list_commits(repo_slug, branch=branch, path=path, limit=validate_limit(limit))
-    return {
-        "commits": [CommitSummary.from_api(c).model_dump() for c in commits],
-    }
+    page = get_client().list_commits_page(
+        repo_slug, branch=branch, path=path, limit=validate_limit(limit),
+        include=include, exclude=exclude, cursor=cursor,
+    )
+    return {"commits": [CommitSummary.from_api(c).model_dump() for c in page["values"]],
+            "has_more": page["has_more"], "next_cursor": page["next_cursor"]}
 
 
 @mcp.tool()
@@ -823,34 +822,84 @@ def get_commit(repo_slug: str, commit: str) -> dict:
 @mcp.tool()
 @handle_bitbucket_error
 @formatted
-def compare_commits(repo_slug: str, base: str, head: str) -> dict:
-    """Compare two commits or branches and see files changed.
+def compare_commits(
+    repo_slug: str, base: str, head: str, path: Optional[str] = None,
+    limit: int = 50, cursor: Optional[str] = None,
+) -> dict:
+    """List changed files from base to head (git diff base head semantics).
 
-    Args:
-        repo_slug: Repository slug
-        base: Base commit hash or branch name
-        head: Head commit hash or branch name
-
-    Returns:
-        Diff statistics showing files added, modified, and removed
+    Revisions can be branches, tags or hashes. Returns a complete page of file
+    statistics. Follow next_cursor for remaining files; cursor keeps its issued
+    filters and page size. Use get_commit_diff for actual changed lines.
     """
-    client = get_client()
-    result = client.compare_commits(repo_slug, base, head)
-    if not result:
-        return {"error": f"Could not compare {base}..{head}"}
-
-    files = result.get("values", [])
+    page = get_client().compare_commits_page(
+        repo_slug, base, head, path=path, limit=validate_limit(limit), cursor=cursor,
+    )
     return {
-        "files": [
-            {
-                "path": f.get("new", {}).get("path") or f.get("old", {}).get("path"),
-                "status": f.get("status"),
-                "+": f.get("lines_added", 0),
-                "-": f.get("lines_removed", 0),
-            }
-            for f in files[:50]  # Limit to first 50 files
-        ],
+        "files": [{"path": (f.get("new") or {}).get("path") or (f.get("old") or {}).get("path"),
+                   "status": f.get("status"), "+": f.get("lines_added", 0),
+                   "-": f.get("lines_removed", 0)} for f in page["values"]],
+        "has_more": page["has_more"], "next_cursor": page["next_cursor"],
     }
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def get_commit_diff(
+    repo_slug: str, base: str, head: str, path: Optional[str] = None,
+    offset: int = 0, max_chars: int = 20000,
+) -> dict:
+    """Read the raw diff from base to head, optionally restricted to a file.
+
+    Follows git diff base head semantics. A large response is clipped explicitly;
+    pass next_offset to read the next chunk with the same revisions/path. Pin
+    revisions to hashes when chunking so moving branches cannot change the diff.
+    max_chars is clamped to 1-100000. Bitbucket may reject oversized diffs (555);
+    narrow with path in that case. Binary differences may have no text patch.
+    """
+    diff = get_client().get_commit_diff(repo_slug, base, head, path=path)
+    if diff is None:
+        return {"error": "Diff or revision not found"}
+    offset = max(0, offset)
+    end = offset + validate_limit(max_chars, 100000)
+    truncated = end < len(diff)
+    return {"diff": diff[offset:end], "offset": offset, "total_chars": len(diff),
+            "truncated": truncated, "next_offset": end if truncated else None}
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def get_merge_base(repo_slug: str, base: str, head: str) -> dict:
+    """Get Bitbucket's best common ancestor of two branches, tags or hashes.
+
+    Useful for ancestry checks: compare the returned hash with a resolved commit.
+    Bitbucket returns one best ancestor, even if the graph has several.
+    """
+    result = get_client().get_merge_base(repo_slug, base, head)
+    return CommitDetail.from_api(result).model_dump() if result else {"error": "Common ancestor not found"}
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def get_file_history(
+    repo_slug: str, path: str, ref: str = "main", limit: int = 20,
+    cursor: Optional[str] = None,
+) -> dict:
+    """List a file's history at a branch, tag or commit without cloning.
+
+    Returns paths and full commit hashes, preserving paths reported by Bitbucket
+    across renames. Use get_commit for author, message and date; Bitbucket omits
+    those from filehistory. Follow next_cursor until has_more is false.
+    cursor keeps its issued page size; limit only applies to the first page.
+    """
+    page = get_client().get_file_history(repo_slug, path, ref, validate_limit(limit), cursor)
+    return {"history": [{"path": f.get("path"),
+                         "commit": {"hash": (f.get("commit") or {}).get("hash", "")}}
+                        for f in page["values"]],
+            "has_more": page["has_more"], "next_cursor": page["next_cursor"]}
 
 
 # ==================== COMMIT STATUS TOOLS ====================
@@ -1303,21 +1352,33 @@ def delete_webhook(repo_slug: str, webhook_uuid: str) -> dict:
 @mcp.tool()
 @handle_bitbucket_error
 @formatted
-def list_tags(repo_slug: str, limit: int = 50) -> dict:
-    """List tags in a repository.
+def list_tags(
+    repo_slug: str, limit: int = 50, query: Optional[str] = None,
+    sort: str = "-target.date", cursor: Optional[str] = None,
+) -> dict:
+    """List a page of tags with their target commits.
 
-    Args:
-        repo_slug: Repository slug
-        limit: Maximum number of results (default: 50)
-
-    Returns:
-        List of tags with name, target commit, and tagger info
+    query is Bitbucket's tag filter (e.g. name ~ "v2"). sort defaults to target
+    commit date descending; use name/-name for natural version-name ordering.
+    Target date is not tag creation date or proof of ancestry. Follow next_cursor
+    until has_more is false. cursor retains its issued filters and page size.
     """
-    client = get_client()
-    tags = client.list_tags(repo_slug, limit=validate_limit(limit))
-    return {
-        "tags": [TagSummary.from_api(t).model_dump() for t in tags],
-    }
+    page = get_client().list_tags_page(repo_slug, validate_limit(limit), query, sort, cursor)
+    return {"tags": [TagSummary.from_api(t).model_dump() for t in page["values"]],
+            "has_more": page["has_more"], "next_cursor": page["next_cursor"]}
+
+
+@mcp.tool()
+@handle_bitbucket_error
+@formatted
+def get_tag(repo_slug: str, tag_name: str) -> dict:
+    """Resolve an exact tag name without scanning pages; returns full target hash."""
+    tag = get_client().get_tag(repo_slug, tag_name)
+    if not tag:
+        return not_found_response("Tag", tag_name)
+    result = TagSummary.from_api(tag).model_dump()
+    result["target"] = (tag.get("target") or {}).get("hash", "")
+    return result
 
 
 @mcp.tool()

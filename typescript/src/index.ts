@@ -51,7 +51,7 @@ import { toolDefinitions, handleToolCall } from './tools/index.js';
 import { resourceDefinitions, handleResourceRead } from './resources.js';
 import { promptDefinitions, handlePromptGet } from './prompts.js';
 
-const VERSION = '0.18.1';
+const VERSION = '0.19.0';
 
 function createServer(): Server {
   const server = new Server(
