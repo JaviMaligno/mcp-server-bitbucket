@@ -12,7 +12,12 @@ Provides all Bitbucket API operations needed by the MCP tools:
 from __future__ import annotations
 
 import time
+import math
+import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -39,6 +44,8 @@ class BitbucketClient:
 
     BASE_URL = "https://api.bitbucket.org/2.0"
     INITIAL_BACKOFF = 1.0  # seconds
+    MAX_RETRY_WAIT = 15.0
+    MAX_PAGES = 1000
 
     def __init__(
         self,
@@ -79,7 +86,7 @@ class BitbucketClient:
 
     def _get_http_client(self) -> httpx.Client:
         """Get or create the HTTP client with connection pooling."""
-        if self._client is None:
+        if self._client is None or self._client.is_closed:
             if self.auth_type == "bearer":
                 self._client = httpx.Client(
                     timeout=self.timeout,
@@ -116,6 +123,8 @@ class BitbucketClient:
 
     def _url(self, path: str) -> str:
         """Build full API URL."""
+        if path.startswith("https://api.bitbucket.org/2.0/"):
+            return path
         return f"{self.BASE_URL}/{path.lstrip('/')}"
 
     def _repo_path(self, repo_slug: str, *parts: str) -> str:
@@ -131,146 +140,175 @@ class BitbucketClient:
         base = f"repositories/{self.workspace}/{repo_slug}"
         return "/".join([base] + list(parts)) if parts else base
 
-    def _request(
-        self,
-        method: str,
-        path: str,
-        json: Optional[dict] = None,
-        params: Optional[dict] = None,
-        timeout: Optional[int] = None,
-    ) -> Optional[dict]:
-        """Make an API request using connection pooling with retry logic.
+    @staticmethod
+    def _retry_delay(value: Optional[str], fallback: float) -> float:
+        """Parse Retry-After seconds or an HTTP date without unbounded sleeps."""
+        if value:
+            try:
+                delay = float(value)
+            except ValueError:
+                try:
+                    date = parsedate_to_datetime(value)
+                    if date.tzinfo is None:
+                        date = date.replace(tzinfo=timezone.utc)
+                    delay = max(0.0, (date - datetime.now(timezone.utc)).total_seconds())
+                except (ValueError, TypeError, OverflowError):
+                    return fallback
+            if math.isfinite(delay) and delay >= 0:
+                return delay
+        return fallback
 
-        Automatically retries on rate limiting (HTTP 429) with exponential backoff.
+    def _send(
+        self, method: str, path: str, *, json: Optional[dict] = None,
+        params: Optional[dict] = None, timeout: Optional[int] = None,
+    ) -> httpx.Response:
+        """Retry safe reads within one timeout budget; never replay ambiguous writes.
 
-        Args:
-            method: HTTP method
-            path: API path (without base URL)
-            json: Request body
-            params: Query parameters
-            timeout: Request timeout in seconds (uses default if not specified)
-
-        Returns:
-            Response JSON or None for 204/404
+        HTTPX timeouts apply to individual socket operations. The deadline also
+        prevents subsequent attempts/backoffs from multiplying that timeout.
         """
-        client = self._get_http_client()
+        budget = timeout or self.timeout
+        deadline = time.monotonic() + budget
+        slept = 0.0
         backoff = self.INITIAL_BACKOFF
-
         for attempt in range(self.max_retries + 1):
-            r = client.request(
-                method,
-                self._url(path),
-                json=json,
-                params=params,
-                headers={"Content-Type": "application/json"} if json else None,
-                timeout=timeout or self.timeout,
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BitbucketError("Request retry time budget exhausted")
+            try:
+                response = self._get_http_client().request(
+                    method, self._url(path), json=json, params=params,
+                    headers={"Content-Type": "application/json"} if json else None,
+                    timeout=remaining,
+                )
+            except httpx.TransportError as error:
+                if method != "GET" or attempt == self.max_retries:
+                    # Do not expose request URLs, credentials or exception bodies.
+                    raise BitbucketError(f"Network request failed ({type(error).__name__})") from error
+                response = None
+            if response is not None:
+                retryable = response.status_code == 429 or (
+                    method == "GET" and response.status_code in (502, 503, 504)
+                )
+                if not retryable or attempt == self.max_retries:
+                    return response
+            delay = self._retry_delay(
+                response.headers.get("Retry-After") if response is not None else None, backoff
             )
+            if delay > min(self.MAX_RETRY_WAIT - slept, deadline - time.monotonic()):
+                raise BitbucketError("Server retry delay exceeds request retry budget; try again later")
+            time.sleep(delay)
+            slept += delay
+            backoff *= 2
+        raise BitbucketError("Request retry budget exhausted")
 
-            if r.status_code == 404:
-                return None
-            if r.status_code in (200, 201, 202):
-                return r.json() if r.content else {}
-            if r.status_code == 204:
-                return {}
+    def _request(
+        self, method: str, path: str, json: Optional[dict] = None,
+        params: Optional[dict] = None, timeout: Optional[int] = None,
+    ) -> Optional[dict]:
+        """Make a JSON request with bounded retries and normalized errors."""
+        r = self._send(method, path, json=json, params=params, timeout=timeout)
+        if r.status_code == 404:
+            return None
+        if r.status_code in (200, 201, 202):
+            return r.json() if r.content else {}
+        if r.status_code == 204:
+            return {}
+        if r.status_code == 429:
+            raise BitbucketError(f"Rate limited after {self.max_retries} retries")
+        raise BitbucketError(f"API error {r.status_code}: {r.text[:500]}\nMethod: {method} {path}")
 
-            # Rate limiting - retry with exponential backoff
-            if r.status_code == 429:
-                if attempt < self.max_retries:
-                    # Check Retry-After header for server-suggested wait time
-                    retry_after = r.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            wait_time = float(retry_after)
-                        except ValueError:
-                            wait_time = backoff
-                    else:
-                        wait_time = backoff
+    def _validate_cursor(self, cursor: str, endpoint: str) -> str:
+        """Only follow next links on the same Bitbucket API endpoint."""
+        try:
+            url = urlsplit(cursor)
+            expected = urlsplit(self._url(endpoint))
+            if (cursor != cursor.strip() or any(ord(c) < 32 for c in cursor)
+                    or url.scheme != "https" or url.netloc != "api.bitbucket.org"
+                    or url.username or url.password or url.fragment
+                    or url.path.rstrip("/") != expected.path.rstrip("/")):
+                raise ValueError("endpoint mismatch")
+        except (ValueError, AttributeError):
+            raise BitbucketError("Invalid pagination cursor for this endpoint") from None
+        return cursor
 
-                    time.sleep(wait_time)
-                    backoff *= 2  # Exponential backoff
-                    continue
-                else:
-                    raise BitbucketError(
-                        f"Rate limited after {self.max_retries} retries. "
-                        f"Method: {method} {path}"
-                    )
+    @staticmethod
+    def _encode_ref(ref: str) -> str:
+        """Encode one revision segment; Git forbids dot path components."""
+        if not ref or any(part in (".", "..") for part in ref.split("/")):
+            raise BitbucketError("Invalid revision: empty or dot path component")
+        return quote(ref, safe="")
 
-            # Truncate error response to avoid huge exception messages
-            error_text = r.text[:500] if len(r.text) > 500 else r.text
-            raise BitbucketError(
-                f"API error {r.status_code}: {error_text}\n"
-                f"Method: {method} {path}"
-            )
+    @staticmethod
+    def _encode_file_path(path: str) -> str:
+        if not path or path.startswith("/") or any(part in (".", "..") for part in path.split("/")):
+            raise BitbucketError("Invalid file path")
+        return "/".join(quote(part, safe="") for part in path.split("/"))
 
-        # Should not reach here, but satisfy type checker
-        raise BitbucketError(f"Unexpected error in request: {method} {path}")
+    def _history_page(
+        self, endpoint: str, *, limit: int = 50, cursor: Optional[str] = None,
+        **params: Any,
+    ) -> dict[str, Any]:
+        """Return a complete API page and its opaque continuation link.
+
+        A cursor retains its original page size and filters. Never slice an API
+        page: doing so would make the remaining records unreachable.
+        """
+        if cursor is not None:
+            endpoint = self._validate_cursor(cursor, endpoint)
+            query = None
+        else:
+            query = {"pagelen": max(1, min(limit, 100)),
+                     **{k: v for k, v in params.items() if v is not None}}
+        result = self._request("GET", endpoint, params=query)
+        if result is None:
+            raise BitbucketError("History resource or revision not found (404)")
+        next_cursor = result.get("next") or None
+        if next_cursor:
+            self._validate_cursor(next_cursor, endpoint)
+        return {"values": result.get("values", []), "has_more": next_cursor is not None,
+                "next_cursor": next_cursor}
 
     def _paginated_list(
-        self,
-        endpoint: str,
-        limit: int = 50,
-        max_page: int = 100,
-        **extra_params,
+        self, endpoint: str, limit: int = 50, max_page: int = 100, **extra_params,
     ) -> list[dict[str, Any]]:
-        """Helper for paginated list endpoints.
-
-        Args:
-            endpoint: API endpoint path
-            limit: Maximum results to return
-            max_page: Maximum page size (API limit)
-            **extra_params: Additional query parameters
-
-        Returns:
-            List of result dicts from 'values' key
-        """
-        params = {"pagelen": min(limit, max_page)}
-        params.update({k: v for k, v in extra_params.items() if v is not None})
-        result = self._request("GET", endpoint, params=params)
-        return result.get("values", []) if result else []
+        """Follow API next links until limit; retain legacy list return values."""
+        params = {"pagelen": max(1, min(limit, max_page)),
+                  **{k: v for k, v in extra_params.items() if v is not None}}
+        values: list[dict[str, Any]] = []
+        path = endpoint
+        seen: set[str] = set()
+        for _ in range(self.MAX_PAGES):
+            if len(values) >= limit:
+                break
+            result = self._request("GET", path, params=params)
+            if not result:
+                break
+            values.extend(result.get("values", []))
+            cursor = result.get("next")
+            if len(values) >= limit or not cursor:
+                break
+            if cursor in seen:
+                raise BitbucketError("Repeated pagination cursor")
+            seen.add(cursor)
+            path = self._validate_cursor(cursor, endpoint)
+            params = None
+        else:
+            raise BitbucketError("Pagination page budget exhausted")
+        return values[:limit]
 
     def _request_text(
-        self,
-        path: str,
-        timeout: Optional[int] = None,
+        self, path: str, timeout: Optional[int] = None, params: Optional[dict] = None,
     ) -> Optional[str]:
-        """Make an API request that returns plain text using connection pooling.
-
-        Used for endpoints that return text content like logs, diffs, and files.
-        Follows redirects automatically. Includes retry logic for rate limiting.
-
-        Args:
-            path: API path (without base URL)
-            timeout: Request timeout in seconds (uses default if not specified)
-
-        Returns:
-            Response text or None for 404
-        """
-        client = self._get_http_client()
-        backoff = self.INITIAL_BACKOFF
-
-        for attempt in range(self.max_retries + 1):
-            r = client.get(
-                self._url(path),
-                timeout=timeout or self.timeout,
-            )
-
-            if r.status_code == 200:
-                return r.text
-            elif r.status_code == 404:
-                return None
-            elif r.status_code == 429:
-                if attempt < self.max_retries:
-                    retry_after = r.headers.get("Retry-After")
-                    wait_time = float(retry_after) if retry_after else backoff
-                    time.sleep(wait_time)
-                    backoff *= 2
-                    continue
-                else:
-                    raise BitbucketError(f"Rate limited after {self.max_retries} retries")
-            else:
-                raise BitbucketError(f"Request failed: {r.status_code}")
-
-        raise BitbucketError(f"Unexpected error in request: GET {path}")
+        """Make a text request with the same recovery policy as JSON requests."""
+        r = self._send("GET", path, params=params, timeout=timeout)
+        if r.status_code == 200:
+            return r.text
+        if r.status_code == 404:
+            return None
+        if r.status_code == 429:
+            raise BitbucketError(f"Rate limited after {self.max_retries} retries")
+        raise BitbucketError(f"Request failed: {r.status_code}")
 
     def _require_result(
         self,
@@ -1000,7 +1038,7 @@ class BitbucketClient:
         Returns:
             Commit info or None if not found
         """
-        return self._request("GET", self._repo_path(repo_slug, "commit", commit))
+        return self._request("GET", self._repo_path(repo_slug, "commit", self._encode_ref(commit)))
 
     def compare_commits(
         self,
@@ -1021,8 +1059,57 @@ class BitbucketClient:
         # Use diffstat for summary, diff for full content
         return self._request(
             "GET",
-            self._repo_path(repo_slug, "diffstat", f"{base}..{head}"),
+            self._repo_path(repo_slug, "diffstat", f"{self._encode_ref(head)}..{self._encode_ref(base)}"),
+            params={"topic": "false"},
         )
+
+    def list_commits_page(
+        self, repo_slug: str, branch: Optional[str] = None,
+        path: Optional[str] = None, limit: int = 20,
+        include: Optional[list[str]] = None, exclude: Optional[list[str]] = None,
+        cursor: Optional[str] = None,
+    ) -> dict[str, Any]:
+        refs = ([branch] if branch else []) + (include or [])
+        return self._history_page(self._repo_path(repo_slug, "commits"), limit=limit,
+                                  cursor=cursor, include=refs or None,
+                                  exclude=exclude or None, path=path)
+
+    def compare_commits_page(
+        self, repo_slug: str, base: str, head: str, path: Optional[str] = None,
+        limit: int = 50, cursor: Optional[str] = None,
+    ) -> dict[str, Any]:
+        # Bitbucket rewrites diffstat next links to 12-character commit hashes,
+        # even when the first request uses a branch, tag, or a full SHA. Resolve
+        # first so the continuation can retain strict endpoint validation.
+        spec = f"{self._comparison_ref(repo_slug, head)}..{self._comparison_ref(repo_slug, base)}"
+        return self._history_page(self._repo_path(repo_slug, "diffstat", spec),
+                                  limit=limit, cursor=cursor, topic="false", path=path)
+
+    def _comparison_ref(self, repo_slug: str, ref: str) -> str:
+        self._encode_ref(ref)
+        commit = self.get_commit(repo_slug, ref)
+        if not commit or not re.fullmatch(r"[a-fA-F0-9]{12,40}", commit.get("hash", "")):
+            raise BitbucketError("Comparison revision not found (404)")
+        return commit["hash"][:12].lower()
+
+    def get_commit_diff(
+        self, repo_slug: str, base: str, head: str, path: Optional[str] = None,
+    ) -> Optional[str]:
+        spec = f"{self._encode_ref(head)}..{self._encode_ref(base)}"
+        return self._request_text(self._repo_path(repo_slug, "diff", spec),
+                                  params={"topic": "false", **({"path": path} if path else {})})
+
+    def get_merge_base(self, repo_slug: str, base: str, head: str) -> Optional[dict]:
+        spec = f"{self._encode_ref(head)}..{self._encode_ref(base)}"
+        return self._request("GET", self._repo_path(repo_slug, "merge-base", spec))
+
+    def get_file_history(
+        self, repo_slug: str, path: str, ref: str = "main", limit: int = 20,
+        cursor: Optional[str] = None,
+    ) -> dict[str, Any]:
+        encoded_path = self._encode_file_path(path)
+        endpoint = self._repo_path(repo_slug, "filehistory", self._encode_ref(ref), encoded_path)
+        return self._history_page(endpoint, limit=limit, cursor=cursor)
 
     # ==================== COMMIT STATUSES ====================
 
@@ -1445,6 +1532,16 @@ class BitbucketClient:
             sort="-target.date",
         )
 
+    def list_tags_page(
+        self, repo_slug: str, limit: int = 50, query: Optional[str] = None,
+        sort: str = "-target.date", cursor: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self._history_page(self._repo_path(repo_slug, "refs", "tags"),
+                                  limit=limit, cursor=cursor, q=query, sort=sort)
+
+    def get_tag(self, repo_slug: str, tag_name: str) -> Optional[dict]:
+        return self._request("GET", self._repo_path(repo_slug, "refs", "tags", self._encode_ref(tag_name)))
+
     def create_tag(
         self,
         repo_slug: str,
@@ -1609,7 +1706,7 @@ class BitbucketClient:
         Returns:
             File content as string or None if not found
         """
-        return self._request_text(self._repo_path(repo_slug, "src", ref, path))
+        return self._request_text(self._repo_path(repo_slug, "src", self._encode_ref(ref), self._encode_file_path(path)))
 
     def list_directory(
         self,
@@ -1630,7 +1727,8 @@ class BitbucketClient:
             List of file/directory info dicts
         """
         return self._paginated_list(
-            self._repo_path(repo_slug, "src", ref, path) if path else self._repo_path(repo_slug, "src", ref),
+            self._repo_path(repo_slug, "src", self._encode_ref(ref), self._encode_file_path(path))
+            if path else self._repo_path(repo_slug, "src", self._encode_ref(ref)),
             limit=limit,
         )
 

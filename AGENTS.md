@@ -2,7 +2,8 @@
 
 MCP (Model Context Protocol) server for the Bitbucket Cloud API 2.0: repositories,
 pull requests, pipelines, branches, commits, tags, deployments, webhooks, branch
-restrictions, source browsing and permissions (58 tools, 4 prompts, 5 resources).
+restrictions, source browsing and permissions (62 Python / 64 TypeScript tools,
+4 prompts, 5 resources).
 Published as `mcp-server-bitbucket` on npm (TypeScript) and PyPI (Python).
 
 This repository is public (GitHub `JaviMaligno/mcp-server-bitbucket`). Keep

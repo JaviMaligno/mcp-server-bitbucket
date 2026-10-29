@@ -15,7 +15,7 @@
  * - Permissions: user and group permissions
  */
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import { getSettings } from './settings.js';
 import { ensureUuidBraces, sleep } from './utils.js';
 import type {
@@ -58,9 +58,27 @@ export class BitbucketError extends Error {
   }
 }
 
-/**
- * Bitbucket API client with connection pooling and retry logic
- */
+export interface HistoryPage<T> {
+  values: T[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
+export interface FileHistoryEntry {
+  path: string;
+  commit: { hash: string };
+}
+
+export interface CommitHistoryOptions {
+  branch?: string;
+  include?: string[];
+  exclude?: string[];
+  path?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+/** Bitbucket API client with bounded retries and resumable history. */
 export class BitbucketClient {
   private static readonly BASE_URL = 'https://api.bitbucket.org/2.0';
   private static readonly INITIAL_BACKOFF = 1000; // ms
@@ -68,12 +86,14 @@ export class BitbucketClient {
   public readonly workspace: string;
   private readonly client: AxiosInstance;
   private readonly maxRetries: number;
+  private readonly requestTimeout: number;
 
   constructor() {
     const settings = getSettings();
     
     this.workspace = settings.bitbucketWorkspace;
     this.maxRetries = settings.maxRetries;
+    this.requestTimeout = settings.apiTimeout * 1000;
 
     // Access tokens (workspace/project/repository) only authenticate with
     // `Authorization: Bearer`; Atlassian API tokens use Basic email:token.
@@ -81,7 +101,8 @@ export class BitbucketClient {
 
     this.client = axios.create({
       baseURL: BitbucketClient.BASE_URL,
-      timeout: settings.apiTimeout * 1000,
+      timeout: this.requestTimeout,
+      paramsSerializer: { indexes: null },
       ...(useBearer
         ? {}
         : {
@@ -105,126 +126,137 @@ export class BitbucketClient {
     return parts.length > 0 ? `${base}/${parts.join('/')}` : base;
   }
 
-  /**
-   * Make an API request with retry logic for rate limiting
-   */
+  private encodeRef(ref: string): string {
+    if (!ref || ref.split('/').some(part => part === '.' || part === '..')) throw new BitbucketError('Invalid revision name');
+    return encodeURIComponent(ref);
+  }
+
+  private encodeFilePath(path: string): string {
+    if (path.startsWith('/') || path.split('/').some(part => part === '.' || part === '..')) {
+      throw new BitbucketError('Invalid repository file path');
+    }
+    return path.split('/').map(encodeURIComponent).join('/');
+  }
+
+  /** Retry only reads after ambiguous network/server failures; writes may retry 429. */
   private async request<T>(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     data?: unknown,
-    params?: Record<string, unknown>
+    params?: Record<string, unknown>,
+    text = false
   ): Promise<T | null> {
     let backoff = BitbucketClient.INITIAL_BACKOFF;
-
+    let slept = 0;
+    const deadline = performance.now() + this.requestTimeout;
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) throw new BitbucketError('Request retry budget exhausted', undefined, method, path);
       try {
         const response = await this.client.request<T>({
-          method,
-          url: path,
-          data,
-          params,
-        });
-
-        return response.data;
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          const axiosError = error as AxiosError;
-          
-          // Handle 404 as null (not found)
-          if (axiosError.response?.status === 404) {
-            return null;
-          }
-
-          // Handle rate limiting (429)
-          if (axiosError.response?.status === 429) {
-            if (attempt < this.maxRetries) {
-              const retryAfter = axiosError.response.headers['retry-after'];
-              const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : backoff;
-              await sleep(waitTime);
-              backoff *= 2;
-              continue;
-            }
-            throw new BitbucketError(
-              `Rate limited after ${this.maxRetries} retries`,
-              429,
-              method,
-              path
-            );
-          }
-
-          // Other errors
-          const statusCode = axiosError.response?.status;
-          const errorText = JSON.stringify(axiosError.response?.data || axiosError.message).substring(0, 500);
-          throw new BitbucketError(
-            `API error ${statusCode}: ${errorText}`,
-            statusCode,
-            method,
-            path
-          );
-        }
-        throw error;
-      }
-    }
-
-    throw new BitbucketError(`Unexpected error in request`, undefined, method, path);
-  }
-
-  /**
-   * Make a request that returns plain text
-   */
-  private async requestText(path: string): Promise<string | null> {
-    let backoff = BitbucketClient.INITIAL_BACKOFF;
-
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        const response = await this.client.get(path, {
-          responseType: 'text',
+          method, url: path, data, params, timeout: Math.max(1, Math.floor(remaining)),
+          ...(text ? { responseType: 'text', transformResponse: [(value: unknown) => value] } : {}),
         });
         return response.data;
       } catch (error) {
-        if (axios.isAxiosError(error)) {
-          if (error.response?.status === 404) {
-            return null;
+        if (!axios.isAxiosError(error)) throw error;
+        const status = error.response?.status;
+        if (status === 404) return null;
+        // Axios can retain the 200 response headers when the body is aborted.
+        // Match this specific transport failure, not generic ERR_BAD_RESPONSE
+        // errors such as size limits or invalid JSON.
+        const abortedBody = error.code === 'ERR_BAD_RESPONSE' && error.message === 'stream has been aborted';
+        const network = abortedBody || (!error.response && ['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'ENOTFOUND', 'ERR_NETWORK'].includes(error.code || ''));
+        const retryable = status === 429 || (method === 'GET' && (network || [502, 503, 504].includes(status ?? 0)));
+        if (retryable && attempt < this.maxRetries) {
+          const header = error.response?.headers['retry-after'];
+          let wait = backoff;
+          if (typeof header === 'string' && header.trim()) {
+            const numeric = Number(header);
+            const dated = /[a-z]/i.test(header) && !['nan', 'inf', 'infinity'].includes(header.toLowerCase())
+              ? Date.parse(header) - Date.now() : NaN;
+            const parsed = Number.isFinite(numeric) && numeric >= 0 ? numeric * 1000 : dated;
+            if (Number.isFinite(parsed) && parsed >= 0) wait = parsed;
           }
-          if (error.response?.status === 429) {
-            if (attempt < this.maxRetries) {
-              const retryAfter = error.response.headers['retry-after'];
-              const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : backoff;
-              await sleep(waitTime);
-              backoff *= 2;
-              continue;
-            }
+          if (wait > 15000 - slept || wait >= deadline - performance.now()) {
+            throw new BitbucketError('Retry-After exceeds request retry budget; retry later', status, method, path);
           }
-          throw new BitbucketError(`Request failed: ${error.response?.status}`);
+          await sleep(wait);
+          slept += wait;
+          backoff *= 2;
+          continue;
         }
-        throw error;
+        // Do not include request config, credentials, or arbitrary upstream error bodies.
+        throw new BitbucketError(
+          network ? `Network request failed after ${attempt + 1} attempt(s)` : `API error ${status ?? 'unknown'}`,
+          status, method, path
+        );
       }
     }
-    return null;
+    throw new BitbucketError('Request retry budget exhausted', undefined, method, path);
   }
 
-  /**
-   * Helper for paginated list endpoints
-   */
+  private requestText(path: string, params?: Record<string, unknown>): Promise<string | null> {
+    return this.request<string>('GET', path, undefined, params, true);
+  }
+
+  /** A next link can change only query parameters, never the authenticated endpoint. */
+  private validateCursor(cursor: string, endpoint: string): string {
+    const expected = new URL(endpoint, BitbucketClient.BASE_URL + '/');
+    let parsed: URL;
+    try { parsed = new URL(cursor); } catch { throw new BitbucketError('Invalid pagination cursor'); }
+    const rawPath = cursor.split(/[?#]/, 1)[0].replace(/^https:\/\/[^/]+/, '');
+    const segments = rawPath.split('/');
+    const unsafeSegments = segments.some(segment => {
+      let decoded: string;
+      try { decoded = decodeURIComponent(segment); } catch { return true; }
+      return decoded === '.' || decoded === '..' || decoded.includes('\\');
+    });
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'api.bitbucket.org' ||
+        (parsed.port && parsed.port !== '443') || parsed.username || parsed.password || parsed.hash ||
+        cursor.includes('\\') || unsafeSegments ||
+        parsed.pathname.replace(/\/$/, '') !== expected.pathname.replace(/\/$/, '')) {
+      throw new BitbucketError('Invalid pagination cursor for this endpoint');
+    }
+    return cursor;
+  }
+
+  private async historyPage<T>(
+    endpoint: string,
+    options: { limit?: number; cursor?: string; maxPage?: number } & Record<string, unknown> = {},
+    allowMissing = false
+  ): Promise<HistoryPage<T>> {
+    const { limit = 50, cursor, maxPage = 100, ...filters } = options;
+    const params: Record<string, unknown> = { pagelen: Math.min(Math.max(1, Math.floor(limit)), maxPage), ...filters };
+    for (const key of Object.keys(params)) if (params[key] === undefined) delete params[key];
+    const result = await this.request<PaginatedResponse<T>>('GET', cursor ? this.validateCursor(cursor, endpoint) : endpoint,
+      undefined, cursor ? undefined : params);
+    if (result === null && !allowMissing) {
+      throw new BitbucketError('History resource or revision not found (404)', 404, 'GET', endpoint);
+    }
+    const next = result?.next ? this.validateCursor(result.next, endpoint) : null;
+    // Never slice a server page: a resumed cursor retains the original page size.
+    return { values: result?.values ?? [], has_more: next !== null, next_cursor: next };
+  }
+
   private async paginatedList<T>(
     endpoint: string,
     options: { limit?: number; maxPage?: number } & Record<string, unknown> = {}
   ): Promise<T[]> {
-    const { limit = 50, maxPage = 100, ...extraParams } = options;
-    const params: Record<string, unknown> = {
-      pagelen: Math.min(limit, maxPage),
-      ...extraParams,
-    };
-
-    // Filter out undefined values
-    Object.keys(params).forEach(key => {
-      if (params[key] === undefined) {
-        delete params[key];
-      }
-    });
-
-    const result = await this.request<PaginatedResponse<T>>('GET', endpoint, undefined, params);
-    return result?.values || [];
+    const limit = Math.max(1, Math.floor(options.limit ?? 50));
+    const values: T[] = [];
+    const visited = new Set<string>();
+    let cursor: string | undefined;
+    // Bounded even if an upstream endpoint produces empty or cyclic pages.
+    for (let pageCount = 0; pageCount < 1000; pageCount++) {
+      const page = await this.historyPage<T>(endpoint, { ...options, cursor }, true);
+      values.push(...page.values);
+      if (values.length >= limit || !page.next_cursor) return values.slice(0, limit);
+      if (visited.has(page.next_cursor)) throw new BitbucketError('Repeated pagination cursor');
+      visited.add(page.next_cursor);
+      cursor = page.next_cursor;
+    }
+    throw new BitbucketError('Pagination page budget exhausted');
   }
 
   // ==================== REPOSITORIES ====================
@@ -749,32 +781,74 @@ export class BitbucketClient {
   }
 
   async getBranch(repoSlug: string, branchName: string): Promise<BitbucketBranch | null> {
-    return this.request('GET', this.repoPath(repoSlug, 'refs', 'branches', branchName));
+    return this.request('GET', this.repoPath(repoSlug, 'refs', 'branches', this.encodeRef(branchName)));
   }
 
   // ==================== COMMITS ====================
 
-  async listCommits(
-    repoSlug: string,
-    options: { branch?: string; path?: string; limit?: number } = {}
-  ): Promise<BitbucketCommit[]> {
+  async listCommits(repoSlug: string, options: CommitHistoryOptions = {}): Promise<BitbucketCommit[]> {
     return this.paginatedList(this.repoPath(repoSlug, 'commits'), {
-      limit: options.limit || 20,
-      include: options.branch,
-      path: options.path,
+      limit: options.limit ?? 20,
+      include: [...(options.branch ? [options.branch] : []), ...(options.include ?? [])],
+      exclude: options.exclude, path: options.path,
+    });
+  }
+
+  listCommitsPage(repoSlug: string, options: CommitHistoryOptions = {}): Promise<HistoryPage<BitbucketCommit>> {
+    return this.historyPage(this.repoPath(repoSlug, 'commits'), {
+      limit: options.limit ?? 20, cursor: options.cursor,
+      include: [...(options.branch ? [options.branch] : []), ...(options.include ?? [])],
+      exclude: options.exclude, path: options.path,
     });
   }
 
   async getCommit(repoSlug: string, commit: string): Promise<BitbucketCommit | null> {
-    return this.request('GET', this.repoPath(repoSlug, 'commit', commit));
+    return this.request('GET', this.repoPath(repoSlug, 'commit', this.encodeRef(commit)));
   }
 
-  async compareCommits(
-    repoSlug: string,
-    base: string,
-    head: string
-  ): Promise<Record<string, unknown> | null> {
-    return this.request('GET', this.repoPath(repoSlug, 'diffstat', `${base}..${head}`));
+  compareCommits(repoSlug: string, base: string, head: string): Promise<Record<string, unknown> | null> {
+    return this.request('GET', this.repoPath(repoSlug, 'diffstat', this.revisionRange(base, head)), undefined, { topic: false });
+  }
+
+  private async resolveComparisonRef(repoSlug: string, ref: string): Promise<string> {
+    this.encodeRef(ref);
+    // Bitbucket rewrites diffstat next links to 12-character commit hashes.
+    // Canonicalize before validating the cursor so it remains endpoint-bound.
+    // Resolve even hexadecimal names: they may be legal branch/tag names,
+    // and an invalid full SHA must not become valid by truncating its prefix.
+    const commit = await this.getCommit(repoSlug, ref);
+    if (!commit) throw new BitbucketError('Commit or revision not found (404)', 404, 'GET');
+    if (!/^[a-fA-F0-9]{12,40}$/.test(commit.hash)) throw new BitbucketError('Invalid commit hash returned by Bitbucket');
+    return commit.hash.slice(0, 12).toLowerCase();
+  }
+
+  async compareCommitsPage(repoSlug: string, base: string, head: string,
+    options: { path?: string; limit?: number; cursor?: string } = {}): Promise<HistoryPage<Record<string, unknown>>> {
+    const canonicalBase = await this.resolveComparisonRef(repoSlug, base);
+    const canonicalHead = await this.resolveComparisonRef(repoSlug, head);
+    return this.historyPage(this.repoPath(repoSlug, 'diffstat', this.revisionRange(canonicalBase, canonicalHead)), {
+      limit: options.limit ?? 50, cursor: options.cursor, path: options.path, topic: false,
+    });
+  }
+
+  /** Bitbucket takes the source first, the opposite of git diff base head. */
+  private revisionRange(base: string, head: string): string {
+    return `${this.encodeRef(head)}..${this.encodeRef(base)}`;
+  }
+
+  getCommitDiff(repoSlug: string, base: string, head: string, options: { path?: string } = {}): Promise<string | null> {
+    return this.requestText(this.repoPath(repoSlug, 'diff', this.revisionRange(base, head)), { topic: false, path: options.path });
+  }
+
+  getMergeBase(repoSlug: string, base: string, head: string): Promise<BitbucketCommit | null> {
+    return this.request('GET', this.repoPath(repoSlug, 'merge-base', this.revisionRange(base, head)));
+  }
+
+  getFileHistory(repoSlug: string, path: string, ref = 'main', options: { limit?: number; cursor?: string } = {}): Promise<HistoryPage<FileHistoryEntry>> {
+    if (!path) throw new BitbucketError('File history requires a file path');
+    return this.historyPage(this.repoPath(repoSlug, 'filehistory', this.encodeRef(ref), this.encodeFilePath(path)), {
+      limit: options.limit ?? 20, cursor: options.cursor,
+    });
   }
 
   async getCommitStatuses(
@@ -912,11 +986,20 @@ export class BitbucketClient {
 
   // ==================== TAGS ====================
 
-  async listTags(repoSlug: string, options: { limit?: number } = {}): Promise<BitbucketTag[]> {
+  async listTags(repoSlug: string, options: { limit?: number; query?: string; sort?: string } = {}): Promise<BitbucketTag[]> {
     return this.paginatedList(this.repoPath(repoSlug, 'refs', 'tags'), {
-      limit: options.limit || 50,
-      sort: '-target.date',
+      limit: options.limit ?? 50, sort: options.sort ?? '-target.date', q: options.query,
     });
+  }
+
+  listTagsPage(repoSlug: string, options: { limit?: number; query?: string; sort?: string; cursor?: string } = {}): Promise<HistoryPage<BitbucketTag>> {
+    return this.historyPage(this.repoPath(repoSlug, 'refs', 'tags'), {
+      limit: options.limit ?? 50, cursor: options.cursor, sort: options.sort ?? '-target.date', q: options.query,
+    });
+  }
+
+  getTag(repoSlug: string, tagName: string): Promise<(BitbucketTag & { date?: string }) | null> {
+    return this.request('GET', this.repoPath(repoSlug, 'refs', 'tags', this.encodeRef(tagName)));
   }
 
   async createTag(
@@ -945,7 +1028,7 @@ export class BitbucketClient {
   }
 
   async deleteTag(repoSlug: string, tagName: string): Promise<void> {
-    await this.request('DELETE', this.repoPath(repoSlug, 'refs', 'tags', tagName));
+    await this.request('DELETE', this.repoPath(repoSlug, 'refs', 'tags', this.encodeRef(tagName)));
   }
 
   // ==================== BRANCH RESTRICTIONS ====================
@@ -1008,7 +1091,7 @@ export class BitbucketClient {
     path: string,
     ref: string = 'main'
   ): Promise<string | null> {
-    return this.requestText(this.repoPath(repoSlug, 'src', ref, path));
+    return this.requestText(this.repoPath(repoSlug, 'src', this.encodeRef(ref), this.encodeFilePath(path)));
   }
 
   async listDirectory(
@@ -1017,8 +1100,8 @@ export class BitbucketClient {
     options: { ref?: string; limit?: number } = {}
   ): Promise<DirectoryEntry[]> {
     const endpoint = path
-      ? this.repoPath(repoSlug, 'src', options.ref || 'main', path)
-      : this.repoPath(repoSlug, 'src', options.ref || 'main');
+      ? this.repoPath(repoSlug, 'src', this.encodeRef(options.ref || 'main'), this.encodeFilePath(path))
+      : this.repoPath(repoSlug, 'src', this.encodeRef(options.ref || 'main'));
     return this.paginatedList(endpoint, { limit: options.limit || 100 });
   }
 

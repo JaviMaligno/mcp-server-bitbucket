@@ -4,20 +4,28 @@
 
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { getClient } from '../client.js';
-import { validateLimit, truncateHash } from '../utils.js';
+import { validateLimit, truncateHash, notFoundResponse } from '../utils.js';
 
 export const definitions: Tool[] = [
   {
     name: 'list_tags',
-    description: 'List tags in a repository.',
+    description: 'List a page of tags, optionally filtered with Bitbucket query syntax and sorted (name uses natural version order). Follow next_cursor for all tags.',
     inputSchema: {
       type: 'object',
       properties: {
         repo_slug: { type: 'string', description: 'Repository slug' },
-        limit: { type: 'number', description: 'Maximum results (default: 50)', default: 50 },
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+        query: { type: 'string', description: 'Bitbucket filter, e.g. name ~ \"v2\" or target.hash = \"full-sha\"' },
+        sort: { type: 'string', description: 'Sort field, e.g. name, -name, -target.date', default: '-target.date' },
+        cursor: { type: 'string', description: 'Opaque next_cursor; retains page size and filters' },
       },
       required: ['repo_slug'],
     },
+  },
+  {
+    name: 'get_tag',
+    description: 'Get a specific tag and its target commit without scanning tag pages.',
+    inputSchema: { type: 'object', properties: { repo_slug: { type: 'string' }, tag_name: { type: 'string' } }, required: ['repo_slug', 'tag_name'] },
   },
   {
     name: 'create_tag',
@@ -50,18 +58,25 @@ export const definitions: Tool[] = [
 export const handlers: Record<string, (args: Record<string, unknown>) => Promise<Record<string, unknown>>> = {
   list_tags: async (args) => {
     const client = getClient();
-    const tags = await client.listTags(args.repo_slug as string, {
-      limit: validateLimit((args.limit as number) || 50),
+    const page = await client.listTagsPage(args.repo_slug as string, {
+      limit: validateLimit((args.limit as number) ?? 50),
+      query: args.query as string, sort: args.sort as string, cursor: args.cursor as string,
     });
     return {
-      tags: tags.map(t => ({
+      tags: page.values.map(t => ({
         name: t.name,
         target: truncateHash(t.target?.hash),
         message: t.message,
         date: t.target?.date,
         tagger: t.tagger?.raw,
       })),
+      has_more: page.has_more, next_cursor: page.next_cursor,
     };
+  },
+
+  get_tag: async (args) => {
+    const tag = await getClient().getTag(args.repo_slug as string, args.tag_name as string);
+    return tag ? { name: tag.name, target: tag.target?.hash, message: tag.message, date: tag.date, tagger: tag.tagger?.raw } : notFoundResponse('Tag', args.tag_name as string);
   },
 
   create_tag: async (args) => {

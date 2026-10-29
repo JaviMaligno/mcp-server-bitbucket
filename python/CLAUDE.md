@@ -35,7 +35,7 @@ git tag v0.x.x && git push origin v0.x.x
 
 The codebase has a simple layered architecture:
 
-- **`src/server.py`**: FastMCP server that defines all 58 MCP tools, 4 prompts, and 5 resources. Each tool is a decorated function (`@mcp.tool()`) that wraps BitbucketClient methods, transforming raw API responses into cleaner dicts for LLM consumption.
+- **`src/server.py`**: FastMCP server that defines all 62 MCP tools, 4 prompts, and 5 resources. Each tool is a decorated function (`@mcp.tool()`) that wraps BitbucketClient methods, transforming raw API responses into cleaner dicts for LLM consumption.
 
 - **`src/__version__.py`**: Centralized version management. Reads version from installed package metadata.
 

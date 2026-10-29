@@ -1,7 +1,7 @@
 """HTTP Server for Bitbucket MCP (Cloud Run deployment).
 
 Uses MCP Streamable HTTP transport for standard MCP protocol over HTTP.
-Exposes all 58 tools, 4 prompts, and 5 resources automatically.
+Exposes all 62 tools, 4 prompts, and 5 resources automatically.
 
 Usage:
     # Development
