@@ -450,19 +450,14 @@ var BitbucketClient = class _BitbucketClient {
     this.maxRetries = settings.maxRetries;
     this.requestTimeout = settings.apiTimeout * 1e3;
     const useBearer = settings.bitbucketAuthType === "bearer";
+    const authorization = useBearer ? `Bearer ${settings.bitbucketApiToken}` : `Basic ${Buffer.from(`${settings.bitbucketEmail}:${settings.bitbucketApiToken}`).toString("base64")}`;
     this.client = axios.create({
       baseURL: _BitbucketClient.BASE_URL,
       timeout: this.requestTimeout,
       paramsSerializer: { indexes: null },
-      ...useBearer ? {} : {
-        auth: {
-          username: settings.bitbucketEmail,
-          password: settings.bitbucketApiToken
-        }
-      },
       headers: {
         "Content-Type": "application/json",
-        ...useBearer ? { Authorization: `Bearer ${settings.bitbucketApiToken}` } : {}
+        Authorization: authorization
       }
     });
   }
