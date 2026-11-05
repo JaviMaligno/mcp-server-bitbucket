@@ -153,18 +153,12 @@ jobs:
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
+      # Trusted publisher configured on npmjs.com for this repo + ci.yml; no token.
       - name: Publish to npm (Trusted Publishing)
         if: steps.exists.outputs.published == 'false'
-        id: oidc
-        continue-on-error: true
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ''
-      - name: Publish to npm (Token fallback)
-        if: steps.exists.outputs.published == 'false' && steps.oidc.outcome == 'failure'
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   verify-docker:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
