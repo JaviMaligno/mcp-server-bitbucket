@@ -3454,7 +3454,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.19.0";
+var VERSION = "0.19.1";
 function createServer() {
   const server = new Server(
     {
