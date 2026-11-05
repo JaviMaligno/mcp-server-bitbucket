@@ -98,22 +98,21 @@ export class BitbucketClient {
     // Access tokens (workspace/project/repository) only authenticate with
     // `Authorization: Bearer`; Atlassian API tokens use Basic email:token.
     const useBearer = settings.bitbucketAuthType === 'bearer';
+    // Send Basic credentials as an explicit header, not axios' `auth` option:
+    // follow-redirects drops `auth` on redirects, and Bitbucket answers some
+    // reads (e.g. pullrequests/{id}/diff) with a same-host 302, so the
+    // followed request became anonymous and private repos returned 404.
+    const authorization = useBearer
+      ? `Bearer ${settings.bitbucketApiToken}`
+      : `Basic ${Buffer.from(`${settings.bitbucketEmail}:${settings.bitbucketApiToken}`).toString('base64')}`;
 
     this.client = axios.create({
       baseURL: BitbucketClient.BASE_URL,
       timeout: this.requestTimeout,
       paramsSerializer: { indexes: null },
-      ...(useBearer
-        ? {}
-        : {
-            auth: {
-              username: settings.bitbucketEmail,
-              password: settings.bitbucketApiToken,
-            },
-          }),
       headers: {
         'Content-Type': 'application/json',
-        ...(useBearer ? { Authorization: `Bearer ${settings.bitbucketApiToken}` } : {}),
+        Authorization: authorization,
       },
     });
   }
