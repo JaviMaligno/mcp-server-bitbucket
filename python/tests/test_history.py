@@ -193,3 +193,49 @@ def test_spec4_tool_error_then_success_is_normalized(mocker):
         {"values": [], "has_more": False, "next_cursor": None}]
     assert server.list_commits("repo")["success"] is False
     assert server.list_commits("repo")["commits"] == []
+
+
+# Issue #13: pipelines next links use workspace/repo UUIDs; build numbers as refs.
+UUID_ROOT = ("https://api.bitbucket.org/2.0/repositories/"
+             "%7Bf0000000-0000-4000-8000-000000000001%7D/%7Bf0000000-0000-4000-8000-000000000002%7D")
+
+
+@respx.mock
+def test_pipelines_follow_uuid_addressed_next_link(client):
+    next_url = UUID_ROOT + "/pipelines/?page=2&pagelen=1&sort=-created_on"
+    respx.get(ROOT + "/pipelines/").respond(
+        200, json={"values": [{"build_number": 3}], "next": next_url})
+    second = respx.get(next_url).respond(200, json={"values": [{"build_number": 2}]})
+    assert [p["build_number"] for p in client.list_pipelines("repo", limit=2)] == [3, 2]
+    assert second.called
+
+
+@pytest.mark.parametrize("next_url", [
+    UUID_ROOT + "/commits?page=2",
+    UUID_ROOT.replace("%7Bf0000000-0000-4000-8000-000000000002%7D", "other") + "/pipelines/?page=2",
+    UUID_ROOT.replace("%7Bf0000000-0000-4000-8000-000000000002%7D", "%7Bnot-a-uuid%7D") + "/pipelines/?page=2",
+])
+@respx.mock
+def test_pipelines_still_reject_next_link_for_other_endpoint(client, next_url):
+    respx.get(ROOT + "/pipelines/").respond(
+        200, json={"values": [{"build_number": 3}], "next": next_url})
+    with pytest.raises(BitbucketError, match="cursor"):
+        client.list_pipelines("repo", limit=2)
+
+
+@respx.mock
+def test_pipeline_build_number_is_passed_through(client):
+    get = respx.get(ROOT + "/pipelines/2256").respond(200, json={"uuid": "{abc}"})
+    steps = respx.get(ROOT + "/pipelines/2256/steps/").respond(200, json={"values": []})
+    assert client.get_pipeline("repo", "2256")["uuid"] == "{abc}"
+    client.get_pipeline_steps("repo", " 2256 ")
+    assert get.called and steps.called
+
+
+@respx.mock
+def test_stop_pipeline_resolves_build_number_to_uuid(client):
+    respx.get(ROOT + "/pipelines/2256").respond(200, json={"uuid": "{abc}"})
+    stop = respx.post(ROOT + "/pipelines/%7Babc%7D/stopPipeline").respond(204)
+    respx.get(ROOT + "/pipelines/%7Babc%7D").respond(200, json={"uuid": "{abc}", "state": {"name": "STOPPED"}})
+    assert client.stop_pipeline("repo", "2256")["state"]["name"] == "STOPPED"
+    assert stop.called
