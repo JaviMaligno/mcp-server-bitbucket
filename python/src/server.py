@@ -416,7 +416,7 @@ def get_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
 
     Args:
         repo_slug: Repository slug
-        pipeline_uuid: Pipeline UUID (from trigger_pipeline)
+        pipeline_uuid: Pipeline UUID (from trigger_pipeline) or build number (e.g. "2256")
 
     Returns:
         Pipeline status including state, duration, and steps
@@ -463,7 +463,7 @@ def get_pipeline_logs(
 
     Args:
         repo_slug: Repository slug
-        pipeline_uuid: Pipeline UUID
+        pipeline_uuid: Pipeline UUID or build number (e.g. "2256")
         step_uuid: Step UUID (optional, get from steps list first)
 
     Returns:
@@ -495,7 +495,7 @@ def stop_pipeline(repo_slug: str, pipeline_uuid: str) -> dict:
 
     Args:
         repo_slug: Repository slug
-        pipeline_uuid: Pipeline UUID
+        pipeline_uuid: Pipeline UUID or build number (e.g. "2256")
 
     Returns:
         Updated pipeline status

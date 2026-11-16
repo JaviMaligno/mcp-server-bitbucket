@@ -92,6 +92,8 @@ The HTTP transports expose new tools automatically. Update the tool tables in `R
   On `v*` tags it builds and publishes both packages (PyPI trusted publishing, npm).
 - The npm (`typescript/package.json`) and PyPI (`python/pyproject.toml`) versions are
   independent; bump the relevant one before tagging.
+- Every release adds a section to `CHANGELOG.md` (Keep a Changelog; one section per
+  `v*` tag, naming the TypeScript and Python versions it ships).
 - `bitbucket-pipelines.yml` (root) only builds and publishes the container image from
   `typescript/Dockerfile` (context `typescript/`) via a shared pipeline template, on
   pushes to `main` and on tags. Tests are not run there. `python/bitbucket-pipelines.yml`

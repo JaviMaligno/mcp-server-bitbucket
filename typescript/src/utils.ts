@@ -14,6 +14,20 @@ export function ensureUuidBraces(uuid: string): string {
 }
 
 /**
+ * Path segment for a pipeline: a build number (all digits) is passed through
+ * as-is, since the API accepts it in place of the UUID; anything else is a UUID.
+ */
+export function pipelineRef(ref: string): string {
+  const trimmed = (ref ?? '').trim();
+  return /^\d+$/.test(trimmed) ? trimmed : ensureUuidBraces(trimmed);
+}
+
+/** True for a Bitbucket UUID in braces, e.g. `{0123abcd-...}`. */
+export function isBracedUuid(value: string): boolean {
+  return /^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/i.test(value);
+}
+
+/**
  * Remove braces from a UUID
  */
 export function removeUuidBraces(uuid: string): string {

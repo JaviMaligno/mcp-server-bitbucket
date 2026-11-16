@@ -17,12 +17,12 @@ import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Optional
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 
 from src.settings import get_settings
-from src.utils import ensure_uuid_braces
+from src.utils import ensure_uuid_braces, is_braced_uuid, pipeline_ref
 
 
 class BitbucketError(Exception):
@@ -218,6 +218,24 @@ class BitbucketClient:
             raise BitbucketError(f"Rate limited after {self.max_retries} retries")
         raise BitbucketError(f"API error {r.status_code}: {r.text[:500]}\nMethod: {method} {path}")
 
+    @staticmethod
+    def _same_endpoint_path(actual: str, expected: str) -> bool:
+        """Compare endpoint paths, allowing UUID-addressed workspace/repo segments.
+
+        Some endpoints (e.g. pipelines) return next links addressed by the
+        workspace and repository UUIDs instead of their slugs. Accept a braced
+        UUID in those two positions only; every other segment must match.
+        """
+        a = actual.rstrip("/").split("/")
+        e = expected.rstrip("/").split("/")
+        if len(a) != len(e):
+            return False
+        repo_scoped = e[1:3] == ["2.0", "repositories"]
+        return all(
+            seg == e[i] or (repo_scoped and i in (3, 4) and is_braced_uuid(unquote(seg)))
+            for i, seg in enumerate(a)
+        )
+
     def _validate_cursor(self, cursor: str, endpoint: str) -> str:
         """Only follow next links on the same Bitbucket API endpoint."""
         try:
@@ -226,7 +244,7 @@ class BitbucketClient:
             if (cursor != cursor.strip() or any(ord(c) < 32 for c in cursor)
                     or url.scheme != "https" or url.netloc != "api.bitbucket.org"
                     or url.username or url.password or url.fragment
-                    or url.path.rstrip("/") != expected.path.rstrip("/")):
+                    or not self._same_endpoint_path(url.path, expected.path)):
                 raise ValueError("endpoint mismatch")
         except (ValueError, AttributeError):
             raise BitbucketError("Invalid pagination cursor for this endpoint") from None
@@ -731,7 +749,7 @@ class BitbucketClient:
         Returns:
             Pipeline info or None if not found
         """
-        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
+        pipeline_uuid = pipeline_ref(pipeline_uuid)
         return self._request(
             "GET",
             self._repo_path(repo_slug, "pipelines", pipeline_uuid),
@@ -769,7 +787,7 @@ class BitbucketClient:
         Returns:
             List of step info dicts
         """
-        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
+        pipeline_uuid = pipeline_ref(pipeline_uuid)
         return self._paginated_list(
             self._repo_path(repo_slug, "pipelines", pipeline_uuid, "steps") + "/",
         )
@@ -790,7 +808,7 @@ class BitbucketClient:
         Returns:
             Log content as string
         """
-        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
+        pipeline_uuid = pipeline_ref(pipeline_uuid)
         step_uuid = ensure_uuid_braces(step_uuid)
         path = self._repo_path(
             repo_slug, "pipelines", pipeline_uuid, "steps", step_uuid, "log"
@@ -809,16 +827,22 @@ class BitbucketClient:
         Returns:
             Updated pipeline info
         """
-        pipeline_uuid = ensure_uuid_braces(pipeline_uuid)
+        ref = pipeline_ref(pipeline_uuid)
+        if ref.isdigit():
+            # Resolve a build number first: only reads are verified to accept it.
+            found = self.get_pipeline(repo_slug, ref)
+            if not found or not found.get("uuid"):
+                raise BitbucketError(f"Pipeline not found: {pipeline_uuid}")
+            ref = ensure_uuid_braces(found["uuid"])
         result = self._request(
             "POST",
-            self._repo_path(repo_slug, "pipelines", pipeline_uuid, "stopPipeline"),
+            self._repo_path(repo_slug, "pipelines", ref, "stopPipeline"),
         )
         # 204 returns {} which is a success
         if result is None:
             raise BitbucketError(f"Failed to stop pipeline {pipeline_uuid}")
         # Return updated pipeline state
-        return self.get_pipeline(repo_slug, pipeline_uuid) or {"stopped": True}
+        return self.get_pipeline(repo_slug, ref) or {"stopped": True}
 
     # ==================== PIPELINE VARIABLES ====================
 

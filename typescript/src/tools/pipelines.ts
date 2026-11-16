@@ -41,7 +41,7 @@ export const definitions: Tool[] = [
       type: 'object',
       properties: {
         repo_slug: { type: 'string', description: 'Repository slug' },
-        pipeline_uuid: { type: 'string', description: 'Pipeline UUID' },
+        pipeline_uuid: { type: 'string', description: 'Pipeline UUID or build number (e.g. "2256")' },
       },
       required: ['repo_slug', 'pipeline_uuid'],
     },
@@ -65,7 +65,7 @@ export const definitions: Tool[] = [
       type: 'object',
       properties: {
         repo_slug: { type: 'string', description: 'Repository slug' },
-        pipeline_uuid: { type: 'string', description: 'Pipeline UUID' },
+        pipeline_uuid: { type: 'string', description: 'Pipeline UUID or build number (e.g. "2256")' },
         step_uuid: { type: 'string', description: 'Step UUID (optional, get from steps list first)' },
       },
       required: ['repo_slug', 'pipeline_uuid'],
@@ -78,7 +78,7 @@ export const definitions: Tool[] = [
       type: 'object',
       properties: {
         repo_slug: { type: 'string', description: 'Repository slug' },
-        pipeline_uuid: { type: 'string', description: 'Pipeline UUID' },
+        pipeline_uuid: { type: 'string', description: 'Pipeline UUID or build number (e.g. "2256")' },
       },
       required: ['repo_slug', 'pipeline_uuid'],
     },

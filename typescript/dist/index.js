@@ -404,6 +404,13 @@ function ensureUuidBraces(uuid) {
   }
   return `{${uuid}}`;
 }
+function pipelineRef(ref) {
+  const trimmed = (ref ?? "").trim();
+  return /^\d+$/.test(trimmed) ? trimmed : ensureUuidBraces(trimmed);
+}
+function isBracedUuid(value) {
+  return /^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/i.test(value);
+}
 function truncateHash(hash) {
   if (!hash) return "";
   return hash.substring(0, 7);
@@ -533,6 +540,26 @@ var BitbucketClient = class _BitbucketClient {
   requestText(path, params) {
     return this.request("GET", path, void 0, params, true);
   }
+  /**
+   * Some endpoints (e.g. pipelines) return next links addressed by the workspace
+   * and repository UUIDs instead of their slugs. Accept a braced UUID in those
+   * two positions only; every other segment must match exactly.
+   */
+  static sameEndpointPath(actual, expected) {
+    const a = actual.replace(/\/$/, "").split("/");
+    const e = expected.replace(/\/$/, "").split("/");
+    if (a.length !== e.length) return false;
+    const repoScoped = e[1] === "2.0" && e[2] === "repositories";
+    return a.every((segment, i) => {
+      if (segment === e[i]) return true;
+      if (!repoScoped || i !== 3 && i !== 4) return false;
+      try {
+        return isBracedUuid(decodeURIComponent(segment));
+      } catch {
+        return false;
+      }
+    });
+  }
   /** A next link can change only query parameters, never the authenticated endpoint. */
   validateCursor(cursor, endpoint) {
     const expected = new URL(endpoint, _BitbucketClient.BASE_URL + "/");
@@ -553,7 +580,7 @@ var BitbucketClient = class _BitbucketClient {
       }
       return decoded === "." || decoded === ".." || decoded.includes("\\");
     });
-    if (parsed.protocol !== "https:" || parsed.hostname !== "api.bitbucket.org" || parsed.port && parsed.port !== "443" || parsed.username || parsed.password || parsed.hash || cursor.includes("\\") || unsafeSegments || parsed.pathname.replace(/\/$/, "") !== expected.pathname.replace(/\/$/, "")) {
+    if (parsed.protocol !== "https:" || parsed.hostname !== "api.bitbucket.org" || parsed.port && parsed.port !== "443" || parsed.username || parsed.password || parsed.hash || cursor.includes("\\") || unsafeSegments || !_BitbucketClient.sameEndpointPath(parsed.pathname, expected.pathname)) {
       throw new BitbucketError("Invalid pagination cursor for this endpoint");
     }
     return cursor;
@@ -847,7 +874,7 @@ var BitbucketClient = class _BitbucketClient {
     return result;
   }
   async getPipeline(repoSlug, pipelineUuid) {
-    return this.request("GET", this.repoPath(repoSlug, "pipelines", ensureUuidBraces(pipelineUuid)));
+    return this.request("GET", this.repoPath(repoSlug, "pipelines", pipelineRef(pipelineUuid)));
   }
   async listPipelines(repoSlug, options = {}) {
     return this.paginatedList(`${this.repoPath(repoSlug, "pipelines")}/`, {
@@ -857,14 +884,14 @@ var BitbucketClient = class _BitbucketClient {
   }
   async getPipelineSteps(repoSlug, pipelineUuid) {
     return this.paginatedList(
-      `${this.repoPath(repoSlug, "pipelines", ensureUuidBraces(pipelineUuid), "steps")}/`
+      `${this.repoPath(repoSlug, "pipelines", pipelineRef(pipelineUuid), "steps")}/`
     );
   }
   async getPipelineLogs(repoSlug, pipelineUuid, stepUuid) {
     const path = this.repoPath(
       repoSlug,
       "pipelines",
-      ensureUuidBraces(pipelineUuid),
+      pipelineRef(pipelineUuid),
       "steps",
       ensureUuidBraces(stepUuid),
       "log"
@@ -872,10 +899,13 @@ var BitbucketClient = class _BitbucketClient {
     return await this.requestText(path) || "";
   }
   async stopPipeline(repoSlug, pipelineUuid) {
-    await this.request(
-      "POST",
-      this.repoPath(repoSlug, "pipelines", ensureUuidBraces(pipelineUuid), "stopPipeline")
-    );
+    let ref = pipelineRef(pipelineUuid);
+    if (/^\d+$/.test(ref)) {
+      const found = await this.getPipeline(repoSlug, ref);
+      if (!found?.uuid) throw new BitbucketError(`Pipeline not found: ${pipelineUuid}`, 404);
+      ref = ensureUuidBraces(found.uuid);
+    }
+    await this.request("POST", this.repoPath(repoSlug, "pipelines", ref, "stopPipeline"));
     const result = await this.getPipeline(repoSlug, pipelineUuid);
     return result || { uuid: pipelineUuid, state: { name: "STOPPED" } };
   }
@@ -1814,7 +1844,7 @@ var definitions3 = [
       type: "object",
       properties: {
         repo_slug: { type: "string", description: "Repository slug" },
-        pipeline_uuid: { type: "string", description: "Pipeline UUID" }
+        pipeline_uuid: { type: "string", description: 'Pipeline UUID or build number (e.g. "2256")' }
       },
       required: ["repo_slug", "pipeline_uuid"]
     }
@@ -1838,7 +1868,7 @@ var definitions3 = [
       type: "object",
       properties: {
         repo_slug: { type: "string", description: "Repository slug" },
-        pipeline_uuid: { type: "string", description: "Pipeline UUID" },
+        pipeline_uuid: { type: "string", description: 'Pipeline UUID or build number (e.g. "2256")' },
         step_uuid: { type: "string", description: "Step UUID (optional, get from steps list first)" }
       },
       required: ["repo_slug", "pipeline_uuid"]
@@ -1851,7 +1881,7 @@ var definitions3 = [
       type: "object",
       properties: {
         repo_slug: { type: "string", description: "Repository slug" },
-        pipeline_uuid: { type: "string", description: "Pipeline UUID" }
+        pipeline_uuid: { type: "string", description: 'Pipeline UUID or build number (e.g. "2256")' }
       },
       required: ["repo_slug", "pipeline_uuid"]
     }
@@ -3454,7 +3484,7 @@ Summarize:
 }
 
 // src/index.ts
-var VERSION = "0.19.1";
+var VERSION = "0.19.2";
 function createServer() {
   const server = new Server(
     {

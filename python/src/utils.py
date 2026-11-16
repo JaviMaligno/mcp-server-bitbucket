@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import wraps
 from typing import Any, Callable, Optional
 
@@ -27,6 +28,26 @@ def ensure_uuid_braces(uuid: str) -> str:
     if not uuid.startswith("{"):
         return f"{{{uuid}}}"
     return uuid
+
+
+def pipeline_ref(ref: str) -> str:
+    """Path segment for a pipeline.
+
+    A build number (all digits) is passed through as-is, because the API
+    accepts it in place of the UUID; anything else is treated as a UUID.
+    """
+    ref = (ref or "").strip()
+    return ref if ref.isdigit() else ensure_uuid_braces(ref)
+
+
+_BRACED_UUID = re.compile(
+    r"\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}", re.I
+)
+
+
+def is_braced_uuid(value: str) -> bool:
+    """True for a Bitbucket UUID in braces, e.g. ``{0123abcd-...}``."""
+    return bool(_BRACED_UUID.fullmatch(value))
 
 
 def truncate_hash(hash_str: Optional[str], length: int = 12) -> str:

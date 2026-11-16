@@ -282,3 +282,43 @@ describe('SPEC-4 bounded resilient requests', () => {
     expect(calls).toHaveLength(4);
   });
 });
+
+describe('pipelines (issue #13)', () => {
+  const UUID_ROOT = 'https://api.bitbucket.org/2.0/repositories/%7Bf0000000-0000-4000-8000-000000000001%7D/%7Bf0000000-0000-4000-8000-000000000002%7D';
+
+  it('follows the UUID-addressed next link Bitbucket returns for pipelines', async () => {
+    const next = UUID_ROOT + '/pipelines/?page=2&pagelen=1&sort=-created_on';
+    replies = [{ data: { values: [{ build_number: 3 }], next } }, { data: { values: [{ build_number: 2 }] } }];
+    const client = new BitbucketClient();
+    expect((await client.listPipelines('repo', { limit: 1 })).map(p => p.build_number)).toEqual([3]);
+    replies = [{ data: { values: [{ build_number: 3 }], next } }, { data: { values: [{ build_number: 2 }] } }];
+    expect((await client.listPipelines('repo', { limit: 2 })).map(p => p.build_number)).toEqual([3, 2]);
+    expect(calls.at(-1)!.url).toBe(next);
+  });
+
+  it.each([
+    UUID_ROOT + '/commits?page=2',
+    UUID_ROOT.replace('%7Bf0000000-0000-4000-8000-000000000002%7D', 'other') + '/pipelines/?page=2',
+    UUID_ROOT.replace('%7Bf0000000-0000-4000-8000-000000000002%7D', '%7Bnot-a-uuid%7D') + '/pipelines/?page=2',
+    'https://api.bitbucket.org/2.0/%7Bf0000000-0000-4000-8000-000000000001%7D/repositories/test-workspace/repo/pipelines/',
+  ])('still rejects a next link for another endpoint: %s', async next => {
+    replies = [{ data: { values: [{ build_number: 3 }], next } }];
+    await expect(new BitbucketClient().listPipelines('repo', { limit: 1 })).rejects.toThrow(/cursor/i);
+  });
+
+  it('accepts a build number in place of the pipeline UUID', async () => {
+    replies = [{ data: { uuid: '{abc}', build_number: 2256 } }, { data: { values: [{ uuid: '{s1}' }] } }];
+    const client = new BitbucketClient();
+    expect((await client.getPipeline('repo', '2256'))?.uuid).toBe('{abc}');
+    await client.getPipelineSteps('repo', ' 2256 ');
+    expect(calls[0].url).toBe('repositories/test-workspace/repo/pipelines/2256');
+    expect(calls[1].url).toBe('repositories/test-workspace/repo/pipelines/2256/steps/');
+  });
+
+  it('resolves a build number to its UUID before stopping', async () => {
+    replies = [{ data: { uuid: '{abc}' } }, { status: 204 }, { data: { uuid: '{abc}', state: { name: 'STOPPED' } } }];
+    await new BitbucketClient().stopPipeline('repo', '2256');
+    expect(calls[1].method).toBe('post');
+    expect(calls[1].url).toBe('repositories/test-workspace/repo/pipelines/{abc}/stopPipeline');
+  });
+});

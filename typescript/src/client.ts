@@ -17,7 +17,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { getSettings } from './settings.js';
-import { ensureUuidBraces, sleep } from './utils.js';
+import { ensureUuidBraces, isBracedUuid, pipelineRef, sleep } from './utils.js';
 import type {
   BitbucketRepository,
   BitbucketBranch,
@@ -199,6 +199,23 @@ export class BitbucketClient {
     return this.request<string>('GET', path, undefined, params, true);
   }
 
+  /**
+   * Some endpoints (e.g. pipelines) return next links addressed by the workspace
+   * and repository UUIDs instead of their slugs. Accept a braced UUID in those
+   * two positions only; every other segment must match exactly.
+   */
+  private static sameEndpointPath(actual: string, expected: string): boolean {
+    const a = actual.replace(/\/$/, '').split('/');
+    const e = expected.replace(/\/$/, '').split('/');
+    if (a.length !== e.length) return false;
+    const repoScoped = e[1] === '2.0' && e[2] === 'repositories';
+    return a.every((segment, i) => {
+      if (segment === e[i]) return true;
+      if (!repoScoped || (i !== 3 && i !== 4)) return false;
+      try { return isBracedUuid(decodeURIComponent(segment)); } catch { return false; }
+    });
+  }
+
   /** A next link can change only query parameters, never the authenticated endpoint. */
   private validateCursor(cursor: string, endpoint: string): string {
     const expected = new URL(endpoint, BitbucketClient.BASE_URL + '/');
@@ -214,7 +231,7 @@ export class BitbucketClient {
     if (parsed.protocol !== 'https:' || parsed.hostname !== 'api.bitbucket.org' ||
         (parsed.port && parsed.port !== '443') || parsed.username || parsed.password || parsed.hash ||
         cursor.includes('\\') || unsafeSegments ||
-        parsed.pathname.replace(/\/$/, '') !== expected.pathname.replace(/\/$/, '')) {
+        !BitbucketClient.sameEndpointPath(parsed.pathname, expected.pathname)) {
       throw new BitbucketError('Invalid pagination cursor for this endpoint');
     }
     return cursor;
@@ -622,7 +639,7 @@ export class BitbucketClient {
   }
 
   async getPipeline(repoSlug: string, pipelineUuid: string): Promise<BitbucketPipeline | null> {
-    return this.request('GET', this.repoPath(repoSlug, 'pipelines', ensureUuidBraces(pipelineUuid)));
+    return this.request('GET', this.repoPath(repoSlug, 'pipelines', pipelineRef(pipelineUuid)));
   }
 
   async listPipelines(
@@ -640,7 +657,7 @@ export class BitbucketClient {
     pipelineUuid: string
   ): Promise<BitbucketPipelineStep[]> {
     return this.paginatedList(
-      `${this.repoPath(repoSlug, 'pipelines', ensureUuidBraces(pipelineUuid), 'steps')}/`
+      `${this.repoPath(repoSlug, 'pipelines', pipelineRef(pipelineUuid), 'steps')}/`
     );
   }
 
@@ -652,7 +669,7 @@ export class BitbucketClient {
     const path = this.repoPath(
       repoSlug,
       'pipelines',
-      ensureUuidBraces(pipelineUuid),
+      pipelineRef(pipelineUuid),
       'steps',
       ensureUuidBraces(stepUuid),
       'log'
@@ -661,10 +678,14 @@ export class BitbucketClient {
   }
 
   async stopPipeline(repoSlug: string, pipelineUuid: string): Promise<BitbucketPipeline> {
-    await this.request(
-      'POST',
-      this.repoPath(repoSlug, 'pipelines', ensureUuidBraces(pipelineUuid), 'stopPipeline')
-    );
+    // Resolve a build number to its UUID first: only reads are verified to accept it.
+    let ref = pipelineRef(pipelineUuid);
+    if (/^\d+$/.test(ref)) {
+      const found = await this.getPipeline(repoSlug, ref);
+      if (!found?.uuid) throw new BitbucketError(`Pipeline not found: ${pipelineUuid}`, 404);
+      ref = ensureUuidBraces(found.uuid);
+    }
+    await this.request('POST', this.repoPath(repoSlug, 'pipelines', ref, 'stopPipeline'));
     const result = await this.getPipeline(repoSlug, pipelineUuid);
     return result || { uuid: pipelineUuid, state: { name: 'STOPPED' } };
   }
